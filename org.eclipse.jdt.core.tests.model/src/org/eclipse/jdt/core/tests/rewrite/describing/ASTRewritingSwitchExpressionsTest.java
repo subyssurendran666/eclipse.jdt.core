@@ -375,10 +375,9 @@ public class ASTRewritingSwitchExpressionsTest extends ASTRewritingTest {
 		buf.append(" 				int z = 100;\n");
 		buf.append(" 				break;\n");
 		buf.append("			}\n");
-		buf.append("			case 100:\n");
-		buf.append("                {\n");
-		buf.append("                    break;\n");
-		buf.append("                }\n");
+		buf.append("			case 100: {\n");
+		buf.append("                break;\n");
+		buf.append("            }\n");
 		buf.append("            default : {\n");
 		buf.append("				break;\n");
 		buf.append("			}\n");
@@ -852,8 +851,7 @@ public class ASTRewritingSwitchExpressionsTest extends ASTRewritingTest {
 		builder.append("    public String foo(int i) {\n" +
 				"		String ret = switch(i%2) {\n" +
 				"		case 0 : \"even\";\n" +
-				"            case 1:\n" +
-				"                \"odd\";\n" +
+				"            case 1: \"odd\";\n" +
 				"		default : \"\";\n" +
 				"		};\n" +
 				"		return ret;");
@@ -1033,14 +1031,17 @@ public class ASTRewritingSwitchExpressionsTest extends ASTRewritingTest {
 		    newCase1.setSwitchLabeledRule(true);
 		    newCase1.expressions().add(ast.newNumberLiteral("1000"));
 
+		    MethodInvocation mi = ast.newMethodInvocation();
+		    QualifiedName qn = ast.newQualifiedName(ast.newName("System"), ast.newSimpleName("out"));
+		    mi.setExpression(qn);
+		    mi.setName(ast.newSimpleName("println"));
+		    mi.arguments().add(ast.newNumberLiteral("10"));
+		    YieldStatement yieldStatement = ast.newYieldStatement();
+		    yieldStatement.setExpression(mi);
 
 		    BreakStatement breakStatement = ast.newBreakStatement();
 		    Block newBlock = ast.newBlock();
 		    newBlock.statements().add(breakStatement);
-
-		    BreakStatement breakStatement1 = ast.newBreakStatement();
-		    Block newBlock1 = ast.newBlock();
-		    newBlock1.statements().add(breakStatement1);
 
 		    SwitchCase defaultCase = (SwitchCase) switchStmt.statements().get(2);
 		    ListRewrite listRewrite = rewrite.getListRewrite(switchStmt, SwitchStatement.STATEMENTS_PROPERTY);
@@ -1049,7 +1050,7 @@ public class ASTRewritingSwitchExpressionsTest extends ASTRewritingTest {
 		    listRewrite.insertBefore(newBlock, defaultCase, null);
 
 		    listRewrite.insertBefore(newCase1, defaultCase, null);
-		    listRewrite.insertBefore(newBlock1, defaultCase, null);
+		    listRewrite.insertBefore(yieldStatement, defaultCase, null);
 	    }
 
 	    String preview = evaluateRewrite(cu, rewrite);
@@ -1066,6 +1067,7 @@ public class ASTRewritingSwitchExpressionsTest extends ASTRewritingTest {
 				            case 100: {
 				                break;
 				            }
+				            case 1000 -> yield System.out.println(10);
 				            default: {
 				                break;
 				            }
