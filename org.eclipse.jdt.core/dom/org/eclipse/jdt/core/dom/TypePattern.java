@@ -187,7 +187,7 @@ public class TypePattern extends Pattern {
 	 * </ul>
 	 * @exception UnsupportedOperationException if this operation is used other than JLS19
 	 * @exception UnsupportedOperationException if this expression is used with previewEnabled flag as false
-	 * @Deprecated(forRemoval = true, since="2024-07")
+	 * @deprecated(forRemoval = true, since="2025-03")
 	 * In the JLS22 API, this method is replaced by  <code>setPatternVariable(VariableDeclaration patternVariable)</code>
 	 * @since 3.38
 	 */
@@ -240,11 +240,7 @@ public class TypePattern extends Pattern {
 	 * @return the pattern variable
 	 * @exception UnsupportedOperationException if this operation is used other than JLS19
 	 * @exception UnsupportedOperationException if this expression is used with previewEnabled flag as false
-<<<<<<< Upstream, based on branch 'master' of https://github.com/eclipse-jdt/eclipse.jdt.core.git
 	 * In the JLS22 API, this method is replaced by  <code>getPatternVariable2()</code>
-=======
-	 * @Deprecated(forRemoval = true, since="2024-07")  In the JLS22 API, this method is replaced by  <code>getPatternVariable2()</code>
->>>>>>> dff915b Added the Deprecated property in the JavaDoc
 	 * @since 3.38
 	 */
 	public SingleVariableDeclaration getPatternVariable() {
