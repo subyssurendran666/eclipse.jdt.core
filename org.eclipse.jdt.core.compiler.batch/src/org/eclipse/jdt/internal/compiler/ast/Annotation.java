@@ -522,6 +522,11 @@ public abstract class Annotation extends Expression {
 					if (CharOperation.equals(name, TypeConstants.DEFAULT_LOCATION__ARRAY_CONTENTS))
 						return Binding.DefaultLocationArrayContents;
 					break;
+				case 16 :
+					if (CharOperation.equals(name, TypeConstants.DEFAULT_LOCATION__RECORD_COMPONENT))
+						return Binding.DefaultLocationRecordComponent;
+					break;
+
 			}
 		}
 		return 0;
@@ -564,6 +569,10 @@ public abstract class Annotation extends Expression {
 				case 9:
 					if (CharOperation.equals(name, TypeConstants.UPPER_PARAMETER))
 						return Binding.DefaultLocationParameter;
+					break;
+				case 16 :
+					if (CharOperation.equals(name, TypeConstants.UPPER_RECORD_COMPONENT))
+						return Binding.DefaultLocationRecordComponent;
 					break;
 			}
 		}
@@ -1079,7 +1088,7 @@ public abstract class Annotation extends Expression {
 							variable.tagBits &= ~TagBits.AnnotationNullMASK; // avoid secondary problems
 						}
 						if ((tagBits & TagBits.AnnotationSuppressWarnings) != 0) {
-							LocalDeclaration localDeclaration = variable.declaration;
+							AbstractVariableDeclaration localDeclaration = variable.declaration;
 							recordSuppressWarnings(scope, localDeclaration.declarationSourceStart, localDeclaration.declarationSourceEnd, compilerOptions.suppressWarnings);
 						}
 						// note: defaultNullness for local declarations has been already been handled earlier by handleNonNullByDefault()

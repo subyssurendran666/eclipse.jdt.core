@@ -985,9 +985,10 @@ private VariableBinding resolveTypeFor(VariableBinding variable) {
 			if (variableDeclaration.getKind() == AbstractVariableDeclaration.ENUM_CONSTANT) {
 				// enum constants neither have a type declaration nor can they be null
 				variable.tagBits |= TagBits.AnnotationNonNull;
-			} else if (variable instanceof FieldBinding field) {
-				if (hasNonNullDefaultForType(variableType, DefaultLocationField, variableDeclaration.sourceStart)) {
-					field.fillInDefaultNonNullness((FieldDeclaration) variableDeclaration, initializationScope);
+			} else {
+				int location = variable.kind() == Binding.RECORD_COMPONENT ? DefaultLocationRecordComponent : DefaultLocationField;
+				if (hasNonNullDefaultForType(variableType, location, variableDeclaration.sourceStart)) {
+					variable.fillInDefaultNonNullness(variableDeclaration, initializationScope);
 				}
 				// validate null annotation:
 				if (!this.scope.validateNullAnnotation(variable.tagBits, variableDeclaration.type, variableDeclaration.annotations))
@@ -2100,7 +2101,7 @@ private MethodBinding resolveTypesWithSuspendedTempErrorHandlingPolicy(MethodBin
 			if (rcbs[i].type.hasTypeAnnotations())
 				methodDecl.bits |= ASTNode.HasTypeAnnotations;
 			// bind the implicit argument already.
-			final LocalVariableBinding implicitArgument = new LocalVariableBinding(rcbs[i].name, rcbs[i].type, rcbs[i].modifiers, true);
+			final LocalVariableBinding implicitArgument = new SyntheticArgumentBinding(rcbs[i]);
 			implicitArgument.tagBits |= rcbs[i].tagBits & (TagBits.AnnotationNullMASK | TagBits.AnnotationOwningMASK);
 			methodDecl.scope.addLocalVariable(implicitArgument);
 			List<AnnotationBinding> propagatedAnnotations = new ArrayList<>();

@@ -2220,7 +2220,7 @@ public void duplicateModifierForType(SourceTypeBinding type) {
 		type.sourceStart(),
 		type.sourceEnd());
 }
-public void duplicateModifierForVariable(LocalDeclaration localDecl, boolean complainForArgument) {
+public void duplicateModifierForVariable(AbstractVariableDeclaration localDecl, boolean complainForArgument) {
 	String[] arguments = new String[] {new String(localDecl.name)};
 	this.handle(
 		complainForArgument
@@ -3139,9 +3139,9 @@ public void illegalModifierForMethod(AbstractMethodDeclaration methodDecl) {
 		methodDecl.sourceStart,
 		methodDecl.sourceEnd);
 }
-public void illegalModifierForVariable(LocalDeclaration localDecl, boolean complainAsArgument) {
+public void illegalModifierForVariable(AbstractVariableDeclaration localDecl, boolean complainAsArgument) {
 	String[] arguments = new String[] {new String(localDecl.name)};
-	int problemId = localDecl.binding.isPatternVariable() ?
+	int problemId = localDecl.getBinding().isPatternVariable() ?
 			IProblem.IllegalModifierForPatternVariable :
 			(complainAsArgument
 					? IProblem.IllegalModifierForArgument
@@ -10608,7 +10608,7 @@ public void nullAnnotationIsRedundant(AbstractMethodDeclaration sourceMethod, in
 	this.handle(IProblem.RedundantNullAnnotation, ProblemHandler.NoArgument, ProblemHandler.NoArgument, sourceStart, sourceEnd);
 }
 
-public void nullAnnotationIsRedundant(FieldDeclaration sourceField) {
+public void nullAnnotationIsRedundant(AbstractVariableDeclaration sourceField) {
 	Annotation annotation = findAnnotation(sourceField.annotations, TypeIds.BitNonNullAnnotation);
 	int sourceStart = annotation != null ? annotation.sourceStart : sourceField.type.sourceStart;
 	int sourceEnd = sourceField.type.sourceEnd;
