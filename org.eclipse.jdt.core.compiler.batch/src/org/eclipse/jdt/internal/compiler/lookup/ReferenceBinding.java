@@ -55,17 +55,20 @@ package org.eclipse.jdt.internal.compiler.lookup;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.LambdaExpression;
 import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.NullAnnotationMatching;
+import org.eclipse.jdt.internal.compiler.ast.RecordComponent;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
-import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 
 /*
 Not all fields defined by this type (& its subclasses) are initialized when it is created.
@@ -88,7 +91,7 @@ abstract public class ReferenceBinding extends TypeBinding {
 	char[] constantPoolName;
 	char[] signature;
 
-	private SimpleLookupTable compatibleCache;
+	private Map<TypeBinding, Boolean> compatibleCache;
 
 	int typeBits; // additional bits characterizing this type
 	protected MethodBinding [] singleAbstractMethod;
@@ -354,16 +357,8 @@ public boolean canBeSeenBy(ReferenceBinding receiverType, ReferenceBinding invoc
 	if (isPrivate()) {
 		// answer true if the receiverType is the receiver or its enclosingType
 		// AND the invocationType and the receiver have a common enclosingType
-		receiverCheck: {
-			if (!(TypeBinding.equalsEquals(receiverType, this) || TypeBinding.equalsEquals(receiverType, enclosingType()))) {
-				// special tolerance for type variable direct bounds, but only if compliance <= 1.6, see: https://bugs.eclipse.org/bugs/show_bug.cgi?id=334622
-				if (receiverType.isTypeVariable()) {
-					TypeVariableBinding typeVariable = (TypeVariableBinding) receiverType;
-					if (typeVariable.environment.globalOptions.complianceLevel <= ClassFileConstants.JDK1_6 && (typeVariable.isErasureBoundTo(erasure()) || typeVariable.isErasureBoundTo(enclosingType().erasure())))
-						break receiverCheck;
-				}
-				return false;
-			}
+		if (!(TypeBinding.equalsEquals(receiverType, this) || TypeBinding.equalsEquals(receiverType, enclosingType()))) {
+			return false;
 		}
 
 		if (TypeBinding.notEquals(invocationType, this)) {
@@ -504,9 +499,6 @@ public void computeId() {
 				case 3: // only one type in this group, yet:
 					if (CharOperation.equals(TypeConstants.ORG_JUNIT_ASSERT, this.compoundName))
 						this.id = TypeIds.T_OrgJunitAssert;
-					else if (CharOperation.equals(TypeConstants.JDK_INTERNAL_PREVIEW_FEATURE, this.compoundName)
-							|| CharOperation.equals(TypeConstants.JDK_INTERNAL_JAVAC_PREVIEW_FEATURE, this.compoundName))
-						this.id = TypeIds.T_JdkInternalPreviewFeature;
 					return;
 				case 4:
 					if (!CharOperation.equals(TypeConstants.JAVA, packageName))
@@ -528,7 +520,7 @@ public void computeId() {
 					switch (packageName[1]) {
 						case 'a':
 							if (CharOperation.equals(TypeConstants.JAKARTA_ANNOTATION_INJECT_INJECT, this.compoundName))
-								this.id = TypeIds.T_JavaxInjectInject;
+								this.id = TypeIds.T_JakartaInjectInject;
 							return;
 					}
 					return;
@@ -1062,6 +1054,7 @@ public ReferenceBinding actualType() {
 	return this;
 }
 
+@Override
 public int enumConstantCount() {
 	int count = 0;
 	FieldBinding[] fields = fields();
@@ -1073,10 +1066,6 @@ public int enumConstantCount() {
 
 public int fieldCount() {
 	return fields().length;
-}
-
-public FieldBinding[] fields() {
-	return Binding.NO_FIELDS;
 }
 
 public final int getAccessFlags() {
@@ -1099,6 +1088,31 @@ public long getAnnotationTagBits() {
 	return this.tagBits;
 }
 
+public RecordComponent getRecordComponent(char[] name) {
+	if (this.isRecord()) {
+		RecordComponentBinding [] rcbs = components();
+		int length = rcbs == null ? 0 : rcbs.length;
+		for (int i = 0; i < length; i++)
+			if (CharOperation.equals(name, rcbs[i].name))
+				return rcbs[i].sourceRecordComponent();
+	}
+	return null;
+}
+
+public RecordComponent[] getRecordComponents() {
+	RecordComponent[] recordComponents = ASTNode.NO_RECORD_COMPONENTS;
+	if (this.isRecord()) {
+		RecordComponentBinding[] rcbs = components();
+		int length = rcbs == null ? 0 : rcbs.length;
+		if (length > 0) {
+			recordComponents = new RecordComponent[length];
+			for (int i = 0; i < length; i++)
+				recordComponents[i] = rcbs[i].sourceRecordComponent();
+		}
+	}
+	return recordComponents;
+}
+
 /**
  * @return the enclosingInstancesSlotSize
  */
@@ -1117,13 +1131,7 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 public FieldBinding getField(char[] fieldName, boolean needResolve) {
 	return null;
 }
-public RecordComponentBinding getComponent(char[] componentName, boolean needResolve) {
-	return null;
-}
-// adding this since we don't use sorting for components
-public RecordComponentBinding getRecordComponent(char[] name) {
-	return null;
-}
+
 /**
  * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
  */
@@ -1211,10 +1219,6 @@ public int hashCode() {
 	return (this.compoundName == null || this.compoundName.length == 0)
 		? super.hashCode()
 		: CharOperation.hashCode(this.compoundName[this.compoundName.length - 1]);
-}
-
-final int identityHashCode() {
-	return super.hashCode();
 }
 
 /**
@@ -1411,6 +1415,11 @@ public boolean isClass() {
 	return (this.modifiers & (ClassFileConstants.AccInterface | ClassFileConstants.AccAnnotation | ClassFileConstants.AccEnum)) == 0;
 }
 
+@Override
+public boolean isRecord() {
+	return (this.modifiers & ExtraCompilerModifiers.AccRecord) != 0;
+}
+
 private static SourceTypeBinding getSourceTypeBinding(ReferenceBinding ref) {
 	if (ref instanceof SourceTypeBinding)
 		return (SourceTypeBinding) ref;
@@ -1448,9 +1457,9 @@ public boolean isCompatibleWith(TypeBinding otherType, /*@Nullable*/ Scope captu
 
 	if (otherType.id == TypeIds.T_JavaLangObject)
 		return true;
-	Object result;
+	Boolean result;
 	if (this.compatibleCache == null) {
-		this.compatibleCache = new SimpleLookupTable(3);
+		this.compatibleCache = new HashMap<>();
 		result = null;
 	} else {
 		result = this.compatibleCache.get(otherType); // [dbg reset] this.compatibleCache.put(otherType,null)
@@ -1734,6 +1743,7 @@ public final boolean isStrictfp() {
  */
 public boolean isSuperclassOf(ReferenceBinding otherType) {
 	while ((otherType = otherType.superclass()) != null) {
+		otherType = (ReferenceBinding) InferenceContext18.maybeCapture(otherType);
 		if (otherType.isEquivalentTo(this)) return true;
 	}
 	return false;
@@ -1831,6 +1841,60 @@ public final ReferenceBinding outermostEnclosingType() {
 	}
 }
 
+/** return all type variables involved left to right */
+public TypeVariableBinding [] typeVariablesIncludingEnclosing() {
+
+	ReferenceBinding enclosingType = enclosingType();
+	TypeVariableBinding [] ownVariables = typeVariables();
+	TypeVariableBinding [] outerVariables = hasEnclosingInstanceContext() && enclosingType != null ? enclosingType.typeVariablesIncludingEnclosing() : Binding.NO_TYPE_VARIABLES;
+
+	if (outerVariables == null || outerVariables == Binding.NO_TYPE_VARIABLES)
+		return ownVariables == null ? Binding.NO_TYPE_VARIABLES : ownVariables;
+
+	if (ownVariables == null || ownVariables == Binding.NO_TYPE_VARIABLES)
+		return outerVariables;
+
+	int outerVariablesCount = outerVariables.length;
+	TypeVariableBinding [] allVariables;
+	System.arraycopy(outerVariables,
+			            0,
+			            allVariables = new TypeVariableBinding[outerVariablesCount + ownVariables.length],
+			            0,
+			         outerVariablesCount);
+	System.arraycopy(ownVariables,
+                         0,
+                         allVariables,
+                 outerVariablesCount,
+              ownVariables.length);
+	return allVariables;
+}
+
+public TypeBinding[] typeArgumentsIncludingEnclosing() {
+	ReferenceBinding enclosingType = enclosingType();
+	TypeBinding [] ownArguments = typeArguments();
+	TypeBinding [] outerArguments = hasEnclosingInstanceContext() && enclosingType != null ? enclosingType.typeArguments() : Binding.NO_TYPES;
+
+	if (outerArguments == null || outerArguments == Binding.NO_TYPES)
+		return ownArguments == null ? Binding.NO_TYPES : ownArguments;
+
+	if (ownArguments == null || ownArguments == Binding.NO_TYPES)
+		return outerArguments;
+
+	int outerArgumentsCount = outerArguments.length;
+	TypeBinding [] allArguments;
+	System.arraycopy(outerArguments,
+			            0,
+			            allArguments = new TypeBinding[outerArgumentsCount + ownArguments.length],
+			            0,
+			            outerArgumentsCount);
+	System.arraycopy(ownArguments,
+                         0,
+                         allArguments,
+                         outerArgumentsCount,
+              ownArguments.length);
+	return allArguments;
+}
+
 /**
  * Answer the source name for the type.
  * In the case of member types, as the qualified name from its top level type.
@@ -1901,8 +1965,8 @@ protected void appendNullAnnotation(StringBuilder nameBuffer, CompilerOptions op
 }
 
 public AnnotationHolder retrieveAnnotationHolder(Binding binding, boolean forceInitialization) {
-	SimpleLookupTable store = storedAnnotations(forceInitialization, false);
-	return store == null ? null : (AnnotationHolder) store.get(binding);
+	Map<Binding, AnnotationHolder> store = storedAnnotations(forceInitialization, false);
+	return store == null ? null : store.get(binding);
 }
 
 AnnotationBinding[] retrieveAnnotations(Binding binding) {
@@ -2067,11 +2131,11 @@ public TypeBinding downwardsProjection(Scope scope, TypeBinding[] mentionedTypeV
 
 void storeAnnotationHolder(Binding binding, AnnotationHolder holder) {
 	if (holder == null) {
-		SimpleLookupTable store = storedAnnotations(false, false);
+		Map<Binding, AnnotationHolder> store = storedAnnotations(false, false);
 		if (store != null)
-			store.removeKey(binding);
+			store.remove(binding);
 	} else {
-		SimpleLookupTable store = storedAnnotations(true, false);
+		Map<Binding, AnnotationHolder> store = storedAnnotations(true, false);
 		if (store != null)
 			store.put(binding, holder);
 	}
@@ -2080,21 +2144,21 @@ void storeAnnotationHolder(Binding binding, AnnotationHolder holder) {
 void storeAnnotations(Binding binding, AnnotationBinding[] annotations, boolean forceStore) {
 	AnnotationHolder holder = null;
 	if (annotations == null || annotations.length == 0) {
-		SimpleLookupTable store = storedAnnotations(false, forceStore);
+		Map<Binding, AnnotationHolder> store = storedAnnotations(false, forceStore);
 		if (store != null)
-			holder = (AnnotationHolder) store.get(binding);
+			holder = store.get(binding);
 		if (holder == null) return; // nothing to delete
 	} else {
-		SimpleLookupTable store = storedAnnotations(true, forceStore);
+		Map<Binding, AnnotationHolder> store = storedAnnotations(true, forceStore);
 		if (store == null) return; // not supported
-		holder = (AnnotationHolder) store.get(binding);
+		holder = store.get(binding);
 		if (holder == null)
 			holder = new AnnotationHolder();
 	}
 	storeAnnotationHolder(binding, holder.setAnnotations(annotations));
 }
 
-SimpleLookupTable storedAnnotations(boolean forceInitialize, boolean forceStore) {
+Map<Binding, AnnotationHolder> storedAnnotations(boolean forceInitialize, boolean forceStore) {
 	return null; // overrride if interested in storing annotations for the receiver, its fields and methods
 }
 
@@ -2124,9 +2188,6 @@ public FieldBinding[] unResolvedFields() {
 	return Binding.NO_FIELDS;
 }
 
-public RecordComponentBinding[] unResolvedComponents() {
-	return Binding.NO_COMPONENTS;
-}
 /*
  * If a type - known to be a Closeable - is mentioned in one of our white lists
  * answer the typeBit for the white list (BitWrapperCloseable or BitResourceFreeCloseable).

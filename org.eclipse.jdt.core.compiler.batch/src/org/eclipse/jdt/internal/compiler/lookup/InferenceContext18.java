@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2013, 2022 GK Software AG, and others.
+ * Copyright (c) 2013, 2025 GK Software AG, and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -161,7 +161,9 @@ public class InferenceContext18 {
 	private boolean isInexactVarargsInference = false;
 	boolean prematureOverloadResolution = false;
 	// during reduction we ignore missing types but record that fact here:
-	boolean hasIgnoredMissingType;
+	TypeBinding missingType;
+
+	private static ThreadLocal<InferenceContext18> instance = new ThreadLocal<>();
 
 	public static boolean isSameSite(InvocationSite site1, InvocationSite site2) {
 		if (site1 == site2)
@@ -691,6 +693,8 @@ public class InferenceContext18 {
 			MethodBinding innerMethod = invocation.binding();
 			if (innerMethod == null)
 				return true; 		  // -> proceed with no new C set elements.
+			if (innerMethod instanceof PolyParameterizedGenericMethodBinding poly && poly.hasOverloads)
+				return true;		  // don't let ambiguous inner method influence outer inference
 
 			Expression[] arguments = invocation.arguments();
 			TypeBinding[] argumentTypes = arguments == null ? Binding.NO_PARAMETERS : new TypeBinding[arguments.length];
@@ -1021,30 +1025,35 @@ public class InferenceContext18 {
 	 * @throws InferenceFailureException a compile error has been detected during inference
 	 */
 	private /*@Nullable*/ BoundSet solve(boolean inferringApplicability, boolean isRecordPatternTypeInference) throws InferenceFailureException {
+		instance.set(this);
 
-		if (!reduce())
-			return null;
-		if (!this.currentBounds.incorporate(this))
-			return null;
-		if (inferringApplicability)
-			this.b2 = this.currentBounds.copy(); // Preserve the result after reduction, without effects of resolve() for later use in invocation type inference.
+		try {
+			if (!reduce())
+				return null;
+			if (!this.currentBounds.incorporate(this))
+				return null;
+			if (inferringApplicability)
+				this.b2 = this.currentBounds.copy(); // Preserve the result after reduction, without effects of resolve() for later use in invocation type inference.
 
-		BoundSet solution = resolve(this.inferenceVariables, isRecordPatternTypeInference);
+			BoundSet solution = resolve(this.inferenceVariables, isRecordPatternTypeInference);
 
-		/* If inferring applicability make a final pass over the initial constraints preserved as final constraints to make sure they hold true at a macroscopic level.
-		   See https://bugs.eclipse.org/bugs/show_bug.cgi?id=426537#c55 onwards.
-		*/
-		if (inferringApplicability && solution != null && this.finalConstraints != null) {
-			for (ConstraintExpressionFormula constraint: this.finalConstraints) {
-				if (constraint.left.isPolyExpression())
-					continue; // avoid redundant re-inference, inner poly's own constraints get validated in its own context & poly invocation type inference proved compatibility against target.
-				constraint.applySubstitution(solution, this.inferenceVariables);
-				if (!this.currentBounds.reduceOneConstraint(this, constraint)) {
-					return null;
+			/* If inferring applicability make a final pass over the initial constraints preserved as final constraints to make sure they hold true at a macroscopic level.
+			   See https://bugs.eclipse.org/bugs/show_bug.cgi?id=426537#c55 onwards.
+			*/
+			if (inferringApplicability && solution != null && this.finalConstraints != null) {
+				for (ConstraintExpressionFormula constraint: this.finalConstraints) {
+					if (constraint.left.isPolyExpression())
+						continue; // avoid redundant re-inference, inner poly's own constraints get validated in its own context & poly invocation type inference proved compatibility against target.
+					constraint.applySubstitution(solution, this.inferenceVariables);
+					if (!this.currentBounds.reduceOneConstraint(this, constraint)) {
+						return null;
+					}
 				}
 			}
+			return solution;
+		} finally {
+			instance.remove();
 		}
-		return solution;
 	}
 
 	public /*@Nullable*/ BoundSet solve() throws InferenceFailureException {
@@ -2201,5 +2210,13 @@ public class InferenceContext18 {
 			}
 		}
 		return false;
+	}
+	public static TypeBinding maybeCapture(TypeBinding type) {
+		InferenceContext18 inst = instance.get();
+		if (inst != null) {
+			InvocationSite inv = inst.currentInvocation;
+			return type.capture(inst.scope, inv.sourceStart(), inv.sourceEnd());
+		}
+		return type;
 	}
 }

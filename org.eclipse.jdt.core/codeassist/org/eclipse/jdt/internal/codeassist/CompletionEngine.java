@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2024 IBM Corporation and others.
+ * Copyright (c) 2000, 2025 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -74,7 +74,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.JavadocTagConstants;
 import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
-import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
+import org.eclipse.jdt.internal.compiler.parser.TerminalToken;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
@@ -97,7 +97,7 @@ import org.eclipse.jdt.internal.core.util.Util;
 @SuppressWarnings({ "rawtypes", "unchecked" })
 public final class CompletionEngine
 	extends Engine
-	implements ISearchRequestor, TypeConstants , TerminalTokens , RelevanceConstants, SuffixConstants {
+	implements ISearchRequestor, TypeConstants, RelevanceConstants, SuffixConstants, ICompletionEngine {
 
 	private static class AcceptedConstructor {
 		public int modifiers;
@@ -1376,7 +1376,7 @@ public final class CompletionEngine
 				this.knownTypes.put(fullyQualifiedName, KNOWN_TYPE_WITH_UNKNOWN_CONSTRUCTORS);
 
 				if (this.resolvingImports) {
-					if(this.compilerOptions.complianceLevel >= ClassFileConstants.JDK1_4 && packageName.length == 0) {
+					if(packageName.length == 0) {
 						continue next; // import of default package is forbidden when compliance is 1.4 or higher
 					}
 
@@ -1388,10 +1388,10 @@ public final class CompletionEngine
 						} else if ((modifiers & ClassFileConstants.AccStatic) == 0) {
 							continue next;
 						} else {
-							completionName = appendUnlessNextToken(completionName, new char[] { ';' }, TerminalTokens.TokenNameSEMICOLON);
+							completionName = appendUnlessNextToken(completionName, new char[] { ';' }, TerminalToken.TokenNameSEMICOLON);
 						}
 					} else {
-						completionName = appendUnlessNextToken(completionName, new char[] {';'}, TerminalTokens.TokenNameSEMICOLON);
+						completionName = appendUnlessNextToken(completionName, new char[] {';'}, TerminalToken.TokenNameSEMICOLON);
 					}
 					int relevance = computeBaseRelevance();
 					relevance += computeRelevanceForResolution();
@@ -1549,7 +1549,7 @@ public final class CompletionEngine
 		}
 	}
 
-	private char[] appendUnlessNextToken(char[] completionName, char[] suffix, int nextToken) {
+	private char[] appendUnlessNextToken(char[] completionName, char[] suffix, TerminalToken nextToken) {
 		if (this.source == null)
 			return CharOperation.concat(completionName, suffix);
 
@@ -1950,8 +1950,13 @@ public final class CompletionEngine
 	 *  @param completionPosition int
 	 *      a position in the source where the completion is taking place.
 	 *      This position is relative to the source provided.
+	 *
+	 *  @param adjustment the amount to subtract from all positions in completion proposals passed to the requestor
+	 *
+	 *  @param root the type root of the compilation unit being completed
 	 */
-	public void complete(ICompilationUnit sourceUnit, int completionPosition, int pos, ITypeRoot root) {
+	@Override
+	public void complete(ICompilationUnit sourceUnit, int completionPosition, int adjustment, ITypeRoot root) {
 
 		if(DEBUG) {
 			trace("COMPLETION IN " + new String(sourceUnit.getFileName()) + " AT POSITION " + completionPosition);  //$NON-NLS-1$//$NON-NLS-2$
@@ -1963,7 +1968,7 @@ public final class CompletionEngine
 		try {
 			this.fileName = sourceUnit.getFileName();
 			this.actualCompletionPosition = completionPosition - 1;
-			this.offset = pos;
+			this.offset = adjustment;
 			this.typeRoot = root;
 			this.source = sourceUnit.getContents();
 
@@ -2159,9 +2164,12 @@ public final class CompletionEngine
 							contextAccepted = true;
 							buildContext(importReference, null, parsedUnit, null, null);
 							if(!this.requestor.isIgnored(CompletionProposal.KEYWORD)) {
-								setSourceAndTokenRange(importReference.sourceStart, importReference.sourceEnd);
-								CompletionOnKeyword keyword = (CompletionOnKeyword)importReference;
-								findKeywords(keyword.getToken(), keyword.getPossibleKeywords(), false, parsedUnit.currentPackage != null);
+								// do not suggest `import` or `package` keywords if the cursor is before an existing package declaration
+								if (parsedUnit.currentPackage == null || importReference.sourceStart >= parsedUnit.currentPackage.sourceStart) {
+									setSourceAndTokenRange(importReference.sourceStart, importReference.sourceEnd);
+									CompletionOnKeyword keyword = (CompletionOnKeyword)importReference;
+									findKeywords(keyword.getToken(), keyword.getPossibleKeywords(), false, parsedUnit.currentPackage != null);
+								}
 							}
 							debugPrintf();
 							return;
@@ -3012,23 +3020,39 @@ public final class CompletionEngine
 		this.completionToken = access.token;
 
 		if (qualifiedBinding.problemId() == ProblemReasons.NotFound) {
-			// complete method members with missing return type
-			// class X {
-			//   Missing f() {return null;}
-			//   void foo() {
-			//     f().|
-			//   }
-			// }
 			if (this.assistNodeInJavadoc == 0 &&
 					(this.requestor.isAllowingRequiredProposals(CompletionProposal.FIELD_REF, CompletionProposal.TYPE_REF) ||
 							this.requestor.isAllowingRequiredProposals(CompletionProposal.METHOD_REF, CompletionProposal.TYPE_REF))) {
-				ProblemMethodBinding problemMethodBinding = (ProblemMethodBinding) qualifiedBinding;
-				findFieldsAndMethodsFromMissingReturnType(
-						problemMethodBinding.selector,
-						problemMethodBinding.parameters,
-						scope,
-						access,
-						insideTypeAnnotation);
+				if (qualifiedBinding instanceof ProblemMethodBinding) {
+					// complete method members with missing return type
+					// class X {
+					//   Missing f() {return null;}
+					//   void foo() {
+					//     f().|
+					//   }
+					// }
+					ProblemMethodBinding problemMethodBinding = (ProblemMethodBinding) qualifiedBinding;
+					findFieldsAndMethodsFromMissingReturnType(problemMethodBinding.selector,
+							problemMethodBinding.parameters, scope, access, insideTypeAnnotation);
+				} else if (access.receiver instanceof AllocationExpression expr) {
+					// complete on missing type
+					// class X {
+					//   void foo() {
+					//     new ArrayList().|
+					//   }
+					// }
+					TypeReference type = expr.type;
+					char[] token = null;
+					if (type instanceof SingleTypeReference ref) {
+						token = ref.token;
+					}
+					if (type instanceof QualifiedTypeReference ref) {
+						token = ref.tokens[0];
+					}
+					if (token != null) {
+						findFieldsAndMethodsFromMissingType(type, scope, access, scope);
+					}
+				}
 			}
 		} else {
 			if (!access.isInsideAnnotation) {
@@ -4501,8 +4525,7 @@ public final class CompletionEngine
 			if (switchStatement.expression != null &&
 					switchStatement.expression.resolvedType != null) {
 				if (this.assistNodeIsInsideCase &&
-						switchStatement.expression.resolvedType.id == TypeIds.T_JavaLangString &&
-						this.compilerOptions.complianceLevel >= ClassFileConstants.JDK1_7) {
+						switchStatement.expression.resolvedType.id == TypeIds.T_JavaLangString) {
 					// set the field to true even though the expected types array will contain String as
 					// expected type to avoid traversing the array in every case later on.
 					// https://bugs.eclipse.org/bugs/show_bug.cgi?id=343476
@@ -5779,18 +5802,16 @@ public final class CompletionEngine
 					createNonGenericTypeSignature(
 						CharOperation.concatWith(JAVA_LANG, '.'),
 						CLASS);
-				if (this.compilerOptions.sourceLevel > ClassFileConstants.JDK1_4) {
-					// add type argument
-					char[] typeArgument = getTypeSignature(receiverType);
-					int oldLength = signature.length;
-					int argumentLength = typeArgument.length;
-					int newLength = oldLength + argumentLength + 2;
-					System.arraycopy(signature, 0, signature = new char[newLength], 0, oldLength - 1);
-					signature[oldLength - 1] = '<';
-					System.arraycopy(typeArgument, 0, signature, oldLength , argumentLength);
-					signature[newLength - 2] = '>';
-					signature[newLength - 1] = ';';
-				}
+				// add type argument
+				char[] typeArgument = getTypeSignature(receiverType);
+				int oldLength = signature.length;
+				int argumentLength = typeArgument.length;
+				int newLength = oldLength + argumentLength + 2;
+				System.arraycopy(signature, 0, signature = new char[newLength], 0, oldLength - 1);
+				signature[oldLength - 1] = '<';
+				System.arraycopy(typeArgument, 0, signature, oldLength , argumentLength);
+				signature[newLength - 2] = '>';
+				signature[newLength - 1] = ';';
 				proposal.setSignature(signature);
 				//proposal.setDeclarationPackageName(null);
 				//proposal.setDeclarationTypeName(null);
@@ -6359,7 +6380,7 @@ public final class CompletionEngine
 					next : for (AbstractMethodDeclaration method : methods) {
 						if (!method.isConstructor()) continue next;
 
-						Argument[] arguments = method.arguments;
+						AbstractVariableDeclaration[] arguments = method.arguments(true);
 						int argumentsLength = arguments == null ? 0 : arguments.length;
 
 						if (parameterCount != argumentsLength) continue next;
@@ -7550,7 +7571,7 @@ public final class CompletionEngine
 						InternalCompletionProposal proposal =  createProposal(CompletionProposal.METHOD_REF, this.actualCompletionPosition);
 						proposal.setDeclarationSignature(getSignature(receiverType));
 						proposal.setSignature(
-								this.compilerOptions.sourceLevel > ClassFileConstants.JDK1_4 && receiverType.isArrayType() ?
+								receiverType.isArrayType() ?
 										createMethodSignature(
 												CharOperation.NO_CHAR_CHAR,
 												CharOperation.NO_CHAR_CHAR,
@@ -7596,7 +7617,7 @@ public final class CompletionEngine
 						InternalCompletionProposal proposal =  createProposal(CompletionProposal.METHOD_REF_WITH_CASTED_RECEIVER, this.actualCompletionPosition);
 						proposal.setDeclarationSignature(getSignature(receiverType));
 						proposal.setSignature(
-								this.compilerOptions.sourceLevel > ClassFileConstants.JDK1_4 && receiverType.isArrayType() ?
+								receiverType.isArrayType() ?
 										createMethodSignature(
 												CharOperation.NO_CHAR_CHAR,
 												CharOperation.NO_CHAR_CHAR,
@@ -8351,8 +8372,7 @@ public final class CompletionEngine
 
 			this.noProposal = false;
 
-			if (this.compilerOptions.complianceLevel < ClassFileConstants.JDK1_5 ||
-					!this.options.suggestStaticImport) {
+			if (!this.options.suggestStaticImport) {
 				if (!this.isIgnored(CompletionProposal.FIELD_REF, CompletionProposal.TYPE_IMPORT)) {
 					char[] completion = CharOperation.concat(receiverType.sourceName, field.name, '.');
 
@@ -9050,8 +9070,7 @@ public final class CompletionEngine
 			}
 		}
 
-		if (astNode instanceof CompletionOnFieldType &&
-	        this.compilerOptions.sourceLevel >= ClassFileConstants.JDK1_8) {
+		if (astNode instanceof CompletionOnFieldType) {
 	        FieldBinding astNodeBinding = ((CompletionOnFieldType) astNode).binding;
 	        ReferenceBinding declaringClass = astNodeBinding != null ? astNodeBinding.declaringClass : null;
 	        if (declaringClass != null && declaringClass.isInterface() && !declaringClass.isAnnotationType())
@@ -9594,7 +9613,13 @@ public final class CompletionEngine
 						}
 						proposal.setRequiredProposals(subProposals);
 					}
-					proposal.setCompletion(completion);
+
+					if (this.parser.assistNodeParent instanceof Javadoc jdoc && jdoc.isMarkdown) {
+						proposal.displayString = completion;
+						proposal.setCompletion(CharOperation.replace(completion, "[]".toCharArray(), "\\[\\]".toCharArray()));  //$NON-NLS-1$//$NON-NLS-2$
+					} else {
+						proposal.setCompletion(completion);
+					}
 					proposal.setFlags(method.modifiers);
 					proposal.setReplaceRange(this.startPosition - this.offset, this.endPosition - this.offset);
 					proposal.setTokenRange(this.tokenStart - this.offset, this.tokenEnd - this.offset);
@@ -9827,8 +9852,7 @@ public final class CompletionEngine
 					}
 				}
 
-				boolean proposeStaticImport = !(this.compilerOptions.complianceLevel < ClassFileConstants.JDK1_5) &&
-					this.options.suggestStaticImport;
+				boolean proposeStaticImport = this.options.suggestStaticImport;
 
 				boolean isAlreadyImported = false;
 				if (!proposeStaticImport) {
@@ -10836,7 +10860,6 @@ public final class CompletionEngine
 		}
 
 		boolean hasPotentialDefaultAbstractMethods = true;
-		boolean java8Plus = this.compilerOptions.sourceLevel >= ClassFileConstants.JDK1_8;
 		while (currentType != null) {
 
 			MethodBinding[] methods = currentType.availableMethods();
@@ -10850,11 +10873,7 @@ public final class CompletionEngine
 					receiverType);
 			}
 
-			if (hasPotentialDefaultAbstractMethods && (java8Plus ||
-					(currentType.isAbstract() ||
-							currentType.isTypeVariable() ||
-							currentType.isIntersectionType() ||
-							currentType.isEnum()))){
+			if (hasPotentialDefaultAbstractMethods){
 
 				ReferenceBinding[] superInterfaces = currentType.superInterfaces();
 
@@ -10879,6 +10898,9 @@ public final class CompletionEngine
 		TypeBinding erasure =  method.declaringClass.erasure();
 		if(!(erasure instanceof ReferenceBinding)) return null;
 
+		if (method.isCanonicalConstructor() && method instanceof SyntheticMethodBinding synthesizedCCtor)
+			return synthesizedCCtor.parameterNames;
+
 		char[][] parameterNames = null;
 
 		int length = parameterTypeNames.length;
@@ -10897,7 +10919,7 @@ public final class CompletionEngine
 					AbstractMethodDeclaration methodDecl = parsedType.declarationOf(method.original());
 
 					if (methodDecl != null){
-						Argument[] arguments = methodDecl.arguments;
+						AbstractVariableDeclaration[] arguments = methodDecl.arguments(true);
 						parameterNames = new char[length][];
 
 						for(int i = 0 ; i < length ; i++){
@@ -11014,7 +11036,6 @@ public final class CompletionEngine
 			}
 		}
 		boolean hasPotentialDefaultAbstractMethods = true;
-		boolean java8Plus = this.compilerOptions.sourceLevel >= ClassFileConstants.JDK1_8;
 		while (currentType != null) {
 
 			MethodBinding[] methods = currentType.availableMethods();
@@ -11047,8 +11068,7 @@ public final class CompletionEngine
 			   For 1.8 even a concrete type's superinterfaces should be searched as they could have default methods which are not implemented by the concrete
 			   type.
 			*/
-			if (hasPotentialDefaultAbstractMethods &&
-					(java8Plus || (currentType.isAbstract() || currentType.isTypeVariable() || currentType.isIntersectionType() || currentType.isEnum()))) {
+			if (hasPotentialDefaultAbstractMethods) {
 
 				ReferenceBinding[] superInterfaces = currentType.superInterfaces();
 				if (superInterfaces != null && currentType.isIntersectionType()) {
@@ -11079,9 +11099,6 @@ public final class CompletionEngine
 					castedReceiver,
 					receiverStart,
 					receiverEnd);
-			} else {
-				if (!java8Plus)
-					hasPotentialDefaultAbstractMethods = false;
 			}
 			currentType = currentType.superclass();
 		}
@@ -11502,7 +11519,6 @@ public final class CompletionEngine
 	}
 
 	private void findTypeParameters(char[] token, Scope scope) {
-		if (this.compilerOptions.sourceLevel < ClassFileConstants.JDK1_5) return;
 
 		TypeParameter[] typeParameters = null;
 		while (scope != null) { // done when a COMPILATION_UNIT_SCOPE is found
@@ -14577,8 +14593,7 @@ public final class CompletionEngine
 	}
 
 	private void findLambdaExpressions(Scope scope) {
-		if (this.requestor.isIgnored(CompletionProposal.LAMBDA_EXPRESSION) ||
-				this.compilerOptions.sourceLevel < ClassFileConstants.JDK1_8) {
+		if (this.requestor.isIgnored(CompletionProposal.LAMBDA_EXPRESSION)) {
 			return;
 		}
 

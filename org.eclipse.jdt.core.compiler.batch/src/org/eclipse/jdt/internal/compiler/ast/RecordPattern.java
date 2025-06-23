@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2022, 2023 IBM Corporation and others.
+ * Copyright (c) 2022, 2025 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -175,11 +175,6 @@ public class RecordPattern extends Pattern {
 	}
 
 	@Override
-	public boolean matchFailurePossible() {
-		return this.patterns.length != 0; // if no deconstruction is involved, no failure is possible.
-	}
-
-	@Override
 	public boolean dominates(Pattern p) {
 		/* 14.30.3: A record pattern with type R and pattern list L dominates another record pattern
 		   with type S and pattern list M if (i) R and S name the same record class, and (ii)
@@ -244,6 +239,7 @@ public class RecordPattern extends Pattern {
 			labels.add(exceptionLabel);
 
 			TypeBinding componentType = p.accessorMethod.returnType;
+			checkForPrimitiveType(currentScope, p, componentType);
 			if (TypeBinding.notEquals(p.accessorMethod.original().returnType.erasure(),
 					componentType.erasure()))
 				codeStream.checkcast(componentType); // lastComponent ? [C] : [R, C]
@@ -264,7 +260,7 @@ public class RecordPattern extends Pattern {
 					if (current.index != outer.patterns.length - 1)
 						pops++;
 					current = outer;
-					outer = outer.getEnclosingPattern() instanceof RecordPattern rp ? rp : null;
+					outer = outer.getEnclosingPattern();
 				}
 				while (pops > 1) {
 					codeStream.pop2();
@@ -288,6 +284,19 @@ public class RecordPattern extends Pattern {
 				eLabels.addAll(labels);
 			}
 			codeStream.patternAccessorMap.put(trapScope, eLabels);
+		}
+	}
+
+	private void checkForPrimitiveType(BlockScope currentScope, Pattern p, TypeBinding componentType) {
+		if (p.isTotalTypeNode && !componentType.isPrimitiveType() &&  p instanceof TypePattern tp) {
+			TypeBinding providedType = tp.resolvedType;
+			if (providedType != null && providedType.isPrimitiveType()) {
+				PrimitiveConversionRoute route = Pattern.findPrimitiveConversionRoute(componentType, providedType, currentScope);
+				if (route != PrimitiveConversionRoute.NO_CONVERSION_ROUTE
+						|| !componentType.isPrimitiveType()) {
+					p.isTotalTypeNode = false;
+				}
+			}
 		}
 	}
 

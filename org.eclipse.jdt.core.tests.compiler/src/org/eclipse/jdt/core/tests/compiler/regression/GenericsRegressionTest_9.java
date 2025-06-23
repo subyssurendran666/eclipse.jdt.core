@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2021 IBM Corporation.
+ * Copyright (c) 2016, 2025 IBM Corporation.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -18,6 +18,10 @@ import junit.framework.Test;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 
+/**
+ * Test class originally capturing issues specific to Java9, but meanwhile also just a continuation
+ * of GenericsRegressionTest_1_8.
+ */
 public class GenericsRegressionTest_9 extends AbstractRegressionTest9 {
 
 static {
@@ -1025,6 +1029,312 @@ public void testGH2817() {
 		};
 	runner.runConformTest();
 }
+public void testGH3501() {
+	Runner runner = new Runner();
+	runner.testFiles = new String[] {
+			"X.java",
+			"""
+			import java.util.Collections;
+			public class X {
+				void test() {
+					Zork v = Collections.singleton("1");
+				}
+			}
+			"""
+		};
+	runner.expectedCompilerLog =
+			"""
+			----------
+			1. ERROR in X.java (at line 4)
+				Zork v = Collections.singleton("1");
+				^^^^
+			Zork cannot be resolved to a type
+			----------
+			""";
+	runner.runNegativeTest();
+}
+public void testGH3457() {
+	runConformTest(new String[] {
+		"Test.java",
+		"""
+		public class Test {
+			public void test() {
+				this.error(new TypeToken<A2<?>>() {});
+			}
+
+			public <T extends B1> void error(TypeToken<? extends A1<? extends T>> type) {}
+			public static abstract class TypeToken<T> {}
+			public static class A1<T extends B1> {}
+			public static class A2<T extends B2> extends A1<T> {}
+
+			public static class B1 {}
+			public static class B2 extends B1 {}
+		}
+		"""
+	});
+}
+public void testGH3457b() {
+	runConformTest(new String[] {
+		"QueryUtil.java",
+		"""
+		import java.util.ArrayList;
+		import java.util.Collection;
+
+		interface IQuery<T> { }
+
+		public class QueryUtil {
+			public static <T> IQuery<T> createCompoundQuery(IQuery<? extends T> query1, IQuery<T> query2, boolean and) {
+				ArrayList<IQuery<? extends T>> queries = new ArrayList<>(2);
+				queries.add(query1);
+				queries.add(query2);
+				return createCompoundQuery(queries, and);
+			}
+			public static <T> IQuery<T> createCompoundQuery(Collection<? extends IQuery<? extends T>> queries, boolean and) {
+				return null;
+			}
+		}
+		"""
+	});
+}
+public void testGH3457c() {
+	runConformTest(new String[] {
+		"QueryUtil.java",
+		"""
+		import java.util.ArrayList;
+		import java.util.Collection;
+		import java.util.List;
+
+		interface IQuery<T> extends List<T> { }
+
+		public class QueryUtil {
+			public static <T> IQuery<T> createCompoundQuery(IQuery<? extends T> query1, IQuery<T> query2, boolean and) {
+				ArrayList<IQuery<? extends T>> queries = new ArrayList<>(2);
+				queries.add(query1);
+				queries.add(query2);
+				return createCompoundQuery(queries, and);
+			}
+			public static <T> IQuery<T> createCompoundQuery(Collection<? extends List<? extends T>> queries, boolean and) {
+				return null;
+			}
+		}
+		"""
+	});
+}
+public void testGH3948() {
+	runConformTest(new String[] {
+			"Foo.java",
+			"""
+			import java.util.Collections;
+			import java.util.List;
+			import java.util.function.BiConsumer;
+			import java.util.function.Function;
+
+			public class Foo {
+			    private List<? extends Bar> value;
+
+			    public void set(List<? extends Bar> value) {
+			        this.value = value;
+			    }
+
+			    public List<Bar> get() {
+			        return Collections.unmodifiableList(value);
+			    }
+
+			    public static void main(String[] args) {
+			        test(Foo::get, Foo::set);
+			    }
+
+			    public static <U> void test(Function<Foo, List<U>> getter, BiConsumer<Foo, List<? extends U>> setter) {
+			        // noop
+			    }
+
+			    public static interface Bar{}
+			}
+			"""
+		});
+}
+public void testGH4022a() {
+	runConformTest(new String[] {
+			"Bug.java",
+			"""
+			import java.util.Collection;
+			import java.util.Set;
+
+			public abstract class Bug {
+				// real code uses some guava method, so method signature  cannot be changed
+				public abstract <T2> Collection<T2> toCollection(Iterable<? extends T2> elements);
+
+				public abstract <T> Set<Class<? extends T>> getSubTypesAsSet(Class<T> type);
+
+				public <T> Collection<Class<? extends T>> getSubTypesAsCollection(Class<T> superclassOrInterface)    {
+					// compiles on older eclipse and javac 21
+					// fails since d9d550f8ddeda45cf4d1b803a99afbd73abf57e4
+					return toCollection(getSubTypesAsSet(superclassOrInterface));
+				}
+
+				public <T> Collection<Class<? extends T>> getSubTypesAsCollectionFixed(Class<T> superclassOrInterface) {
+					// type as suggested by eclipse when using "extract local variable"
+					Set<Class<? extends T>> subTypesAsSet = getSubTypesAsSet(superclassOrInterface);
+
+					// compiles
+					return toCollection(subTypesAsSet);
+				}
+			}
+			"""
+		});
+}
+public void testGH4022b() {
+	runConformTest(new String[] {
+			"OtherExample.java",
+			"""
+			import java.util.Set;
+			import java.util.function.Function;
+
+			interface TaskDefinition {
+				public Set<String> getLabels();
+			}
+
+			abstract class FluentIterable<E> implements Iterable<E> {
+				public abstract <T> FluentIterable<T> transformAndConcat(
+						Function<? super E, ? extends Iterable<? extends T>> function);
+
+				public abstract Set<E> toSet();
+			}
+
+			public abstract class OtherExample {
+				public Set<String> getAllLabels(FluentIterable<TaskDefinition> from) {
+			                // doesn't compile since d9d550f8ddeda45cf4d1b803a99afbd73abf57e4
+					return from.transformAndConcat((TaskDefinition input) -> input.getLabels()).toSet();
+				}
+			}
+			"""
+		});
+}
+public void testGH4033() {
+	runConformTest(new String[] {
+			"Snippet.java",
+			"""
+			import java.util.Collection;
+			import java.util.Iterator;
+
+			public class Snippet {
+				interface Apple {}
+				interface Banana<T1, T2> {}
+				interface Smoothie<T extends Apple, M extends Apple> extends Banana<T, String> {}
+
+				public static void main(String[] args) {
+					Collection<Smoothie<? extends Apple, ? extends Apple>> c = null;
+					method(c);
+				}
+
+				static final <S extends Banana<? extends T, ?>, T> Iterator<T> method(
+						Collection<S> c) {
+					return null;
+				}
+			}
+			"""
+		});
+}
+public void testGH4039() {
+	runConformTest(new String[] {
+		"CollectionsSortReproducer.java",
+		"""
+		import java.util.Collection;
+		import java.util.Collections;
+		import java.util.Iterator;
+		import java.util.List;
+
+		public class CollectionsSortReproducer {
+			class Cranberry<T_Value> implements Comparable<Cranberry<T_Value>> {
+				@Override
+				public int compareTo(Cranberry<T_Value> o) { return 0; }
+			}
+
+			public static void main(String[] args) {
+				List<Cranberry<?>> l = Collections.emptyList();
+			    Collections.sort(l);
+			}
+		}
+		"""
+	});
+}
+
+public void testGH4003() {
+	if (this.complianceLevel < ClassFileConstants.JDK10)
+		return; // uses 'var'
+	runConformTest(new String[] {
+		"EclipseCompilerBugReproducer.java",
+		"""
+		import java.util.List;
+		import java.util.concurrent.CompletableFuture;
+		import java.util.concurrent.CompletionStage;
+		import java.util.function.Function;
+		import java.util.function.Supplier;
+
+		public class EclipseCompilerBugReproducer {
+
+		    public static final class Mono<T> {
+
+		        public static <T> Mono<T> fromFuture(CompletionStage<? extends T> stage) {
+		            return new Mono<>();
+		        }
+
+		        public static <T> Mono<T> fromFuture(
+		                Supplier<? extends CompletionStage<? extends T>> stageSupplier) {
+		            return new Mono<>();
+		        }
+
+		        public <R> Mono<R> flatMap(Function<? super T, Mono<? extends R>> mapper) { return new Mono<>(); }
+		        public <R> Mono<R> map(Function<? super T, ? extends R> mapper)          { return new Mono<>(); }
+		        public List<T>      collectList()                                        { return List.of(); }
+		        public T            block()                                              { return null; }
+		    }
+
+		    static final class Bucket {
+		        CompletionStage<String> get(String id) {
+		            return CompletableFuture.completedFuture("value-for-" + id);
+		        }
+		    }
+
+		    /* ---------------------------------------------------------------------- */
+		    /*  Reproducer                                                            */
+		    /* ---------------------------------------------------------------------- */
+		    public static void main(String[] args) {
+
+		        var ids    = List.of("a", "b", "c");
+		        var bucket = new Bucket();
+
+		        ids.stream()
+		           .flatMap(id ->
+		               Mono.fromFuture(() -> bucket.get(id))   // <-- fails in Eclipse
+		                   .map(String::toUpperCase)
+		                   .collectList()
+		                   .stream())
+		           .forEach(System.out::println);
+		    }
+		}
+		"""
+	});
+}
+
+public void testGH4098() {
+	runConformTest(new String[] {
+		"ClassA.java",
+		"""
+		import java.util.Collections;
+		import java.util.HashSet;
+		import java.util.Set;
+
+		public class ClassA {
+		  public static void main(String[] args) {
+		    Set<? super Integer> set = new HashSet<>(Set.of(1, 5));
+		    System.out.println(Collections.unmodifiableSet(set));
+		  }
+		}
+		"""
+	});
+}
+
 public static Class<GenericsRegressionTest_9> testClass() {
 	return GenericsRegressionTest_9.class;
 }

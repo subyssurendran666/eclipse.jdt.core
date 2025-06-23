@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2024 IBM Corporation and others.
+ * Copyright (c) 2000, 2025 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -2107,18 +2107,7 @@ public void test063() {
 		"	}	\n"+
 		"}	\n",
 	};
-	if (this.complianceLevel >= ClassFileConstants.JDK1_7) {
-		this.runConformTest(sources, "SUCCESS");
-	} else {
-		this.runNegativeTest(
-			sources,
-			"----------\n" +
-			"1. ERROR in p1\\X.java (at line 5)\n" +
-			"	Z(){	\n" +
-			"	^^^\n" +
-			"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-			"----------\n");
-	}
+	this.runConformTest(sources, "SUCCESS");
 }
 
 /**
@@ -2141,18 +2130,7 @@ public void test064() {
 		"	}\n" +
 		"}\n"
 	};
-	if (this.complianceLevel >= ClassFileConstants.JDK1_7) {
-		this.runConformTest(sources, "SUCCESS");
-	} else {
-		this.runNegativeTest(
-			sources,
-			"----------\n" +
-			"1. ERROR in Foo.java (at line 10)\n" +
-			"	public Baz() {\n" +
-			"	       ^^^^^\n" +
-			"No enclosing instance of type Foo is available due to some intermediate constructor invocation\n" +
-			"----------\n");
-	}
+	this.runConformTest(sources, "SUCCESS");
 }
 
 public void test065() {
@@ -2177,28 +2155,7 @@ public void test065() {
 		"	}	\n"+
 		"}	\n"
 	};
-	if (this.complianceLevel >= ClassFileConstants.JDK1_7) {
-		this.runConformTest(sources, "X-foo");
-	} else {
-		this.runNegativeTest(
-			sources,
-			"----------\n" +
-			"1. WARNING in X.java (at line 7)\n" +
-			"	String foo() { return \"Y-foo\"; }	\n" +
-			"	       ^^^^^\n" +
-			"The method foo() of type X.Y should be tagged with @Override since it actually overrides a superclass method\n" +
-			"----------\n" +
-			"2. ERROR in X.java (at line 9)\n" +
-			"	Z(){	\n" +
-			"	^^^\n" +
-			"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-			"----------\n" +
-			"3. WARNING in X.java (at line 12)\n" +
-			"	String foo() { return \"Z-foo\"; }	\n" +
-			"	       ^^^^^\n" +
-			"The method foo() of type X.Y.Z should be tagged with @Override since it actually overrides a superclass method\n" +
-			"----------\n");
-	}
+	this.runConformTest(sources, "X-foo");
 }
 
 /*
@@ -2249,28 +2206,13 @@ public void test067() {
 			"	      ^^^^^^^\n" +
 			"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
 			"----------\n";
-	if (this.complianceLevel == ClassFileConstants.JDK1_6) {
-		expectedError =
-				"----------\n" +
-				"1. ERROR in X.java (at line 11)\n" +
-				"	super(null); //1\n" +
-				"	^^^^^^^^^^^^\n" +
-				"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-				"----------\n" +
-				"2. ERROR in X.java (at line 14)\n" +
-				"	super(new M());//2\n" +
-				"	^^^^^^^^^^^^^^^\n" +
-				"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-				"----------\n";
-	} else if (this.complianceLevel >= ClassFileConstants.JDK1_7) {
-		expectedError =
-				"----------\n" +
-				"1. ERROR in X.java (at line 14)\n" +
-				"	super(new M());//2\n" +
-				"	      ^^^^^^^\n" +
-				"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-				"----------\n";
-	}
+	expectedError =
+			"----------\n" +
+			"1. ERROR in X.java (at line 14)\n" +
+			"	super(new M());//2\n" +
+			"	      ^^^^^^^\n" +
+			"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
+			"----------\n";
 	this.runNegativeTest(
 		new String[] {
 			"X.java",
@@ -2316,18 +2258,7 @@ public void test068() {
 		"	}\n" +
 		"}\n",
 	};
-	if (this.complianceLevel >= ClassFileConstants.JDK1_7) {
-		this.runConformTest(sources);
-	} else {
-		this.runNegativeTest(
-			sources,
-			"----------\n" +
-			"1. ERROR in X.java (at line 8)\n" +
-			"	super();	// ko\n" +
-			"	^^^^^^^^\n" +
-			"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-			"----------\n");
-	}
+	this.runConformTest(sources);
 }
 
 /*
@@ -2351,34 +2282,18 @@ public void test069() {
 			"	     ^^^^^^^^^\n" +
 			"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
 			"----------\n";
-	if (this.complianceLevel == ClassFileConstants.JDK1_6) {
-		expectedError =
-				"----------\n" +
-				"1. ERROR in X.java (at line 8)\n" +
-				"	super(new MX4());	// ko\n" +
-				"	^^^^^^^^^^^^^^^^^\n" +
-				"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-				"----------\n" +
-				"2. ERROR in X.java (at line 14)\n" +
-				"	this(new MX4());		// ko\n" +
-				"	     ^^^^^^^^^\n" +
-				"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-				"----------\n";
-	} else if (this.complianceLevel >= ClassFileConstants.JDK1_7) {
-		expectedError =
-				"----------\n" +
-				"1. ERROR in X.java (at line 8)\n" +
-				"	super(new MX4());	// ko\n" +
-				"	      ^^^^^^^^^\n" +
-				"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-				"----------\n" +
-				"2. ERROR in X.java (at line 14)\n" +
-				"	this(new MX4());		// ko\n" +
-				"	     ^^^^^^^^^\n" +
-				"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
-				"----------\n";
-
-	}
+	expectedError =
+			"----------\n" +
+			"1. ERROR in X.java (at line 8)\n" +
+			"	super(new MX4());	// ko\n" +
+			"	      ^^^^^^^^^\n" +
+			"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
+			"----------\n" +
+			"2. ERROR in X.java (at line 14)\n" +
+			"	this(new MX4());		// ko\n" +
+			"	     ^^^^^^^^^\n" +
+			"No enclosing instance of type X is available due to some intermediate constructor invocation\n" +
+			"----------\n";
 	this.runNegativeTest(
 		new String[] {
 			"X.java",
@@ -2721,7 +2636,7 @@ public void test078() {
 // TODO: Enable after Bug 552769 is fixed
 public void test079() {
 
-	String problemLog = (this.complianceLevel >= ClassFileConstants.JDK23) ?
+	String problemLog = (this.complianceLevel >= ClassFileConstants.JDK24) ?
 			"""
 			----------
 			1. ERROR in X.java (at line 1)
@@ -2745,7 +2660,7 @@ public void test079() {
 			1. ERROR in X.java (at line 1)
 				void ___eval() {
 				^
-			The preview feature Implicitly Declared Classes and Instance Main Methods is only available with source level 23 and above
+			The preview feature Implicitly Declared Classes and Instance Main Methods is only available with source level 24 and above
 			----------
 			2. ERROR in X.java (at line 1)
 				void ___eval() {

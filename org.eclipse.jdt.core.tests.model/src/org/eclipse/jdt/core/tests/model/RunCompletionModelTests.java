@@ -40,7 +40,7 @@ public class RunCompletionModelTests extends junit.framework.TestCase {
 			COMPLETION_SUITES.add(CompletionTests9.class);
 			COMPLETION_SUITES.add(CompletionTests10.class);
 			COMPLETION_SUITES.add(CompletionTests11.class);
-			COMPLETION_SUITES.add(CompletionTests14.class);
+			COMPLETION_SUITES.add(CompletionTests16.class);
 			COMPLETION_SUITES.add(CompletionTests16_1.class);
 			COMPLETION_SUITES.add(CompletionTests16_2.class);
 			COMPLETION_SUITES.add(CompletionTests17.class);
@@ -55,6 +55,7 @@ public class RunCompletionModelTests extends junit.framework.TestCase {
 			COMPLETION_SUITES.add(SnippetCompletionContextTests.class);
 			COMPLETION_SUITES.add(SubstringCompletionTests.class);
 			COMPLETION_SUITES.add(SubwordCompletionTests.class);
+			COMPLETION_SUITES.add(CompletionEngineProviderTests.class);
 		}
 		COMPLETION_SUITES.add(JavadocTypeCompletionModelTest.class);
 		COMPLETION_SUITES.add(JavadocFieldCompletionModelTest.class);

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2024 IBM Corporation and others.
+ * Copyright (c) 2000, 2025 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -99,11 +99,14 @@ protected BlockScope(int kind, Scope parent) {
 /* Create the class scope & binding for the anonymous type.
  */
 public final void addAnonymousType(TypeDeclaration anonymousType, ReferenceBinding superBinding) {
-	ClassScope anonymousClassScope = new ClassScope(this, anonymousType);
-	anonymousClassScope.buildAnonymousTypeBinding(
-		enclosingSourceType(),
-		superBinding);
-
+	// This may have been called from an annotation processor through Elements#getEnumConstantBody()
+	// and binding may have been set. If binding is already set, skip this
+	if (anonymousType.binding == null) {
+		ClassScope anonymousClassScope = new ClassScope(this, anonymousType);
+		anonymousClassScope.buildAnonymousTypeBinding(
+				enclosingSourceType(),
+				superBinding);
+	}
 	/* Tag any enclosing lambdas as instance capturing. Strictly speaking they need not be, unless the local/anonymous type references enclosing instance state.
 	   but the types themselves track enclosing types regardless of whether the state is accessed or not. This creates a mismatch in expectations in code generation
 	   time, if we choose to make the lambda method static. To keep things simple and avoid a messy rollback, we force the lambda to be an instance method under
@@ -132,7 +135,8 @@ public final void addLocalType(TypeDeclaration localType) {
 	while (methodScope != null && methodScope.referenceContext instanceof LambdaExpression) {
 		LambdaExpression lambda = (LambdaExpression) methodScope.referenceContext;
 		if (!lambda.scope.isStatic && !lambda.scope.isConstructorCall) {
-			lambda.shouldCaptureInstance = true;
+			if (!isInsideEarlyConstructionContext(null, true))
+				lambda.shouldCaptureInstance = true;
 		}
 		methodScope = methodScope.enclosingMethodScope();
 	}
@@ -424,12 +428,11 @@ public void emulateOuterAccess(LocalVariableBinding outerLocalVariable) {
  * where we only want to deal with ONE enclosing instance for C (could not figure out an A for C)
  */
 public final ReferenceBinding findLocalType(char[] name) {
-	long compliance = compilerOptions().complianceLevel;
 	for (int i = this.subscopeCount-1; i >= 0; i--) {
 		if (this.subscopes[i] instanceof ClassScope) {
 			LocalTypeBinding sourceType = (LocalTypeBinding)((ClassScope) this.subscopes[i]).referenceContext.binding;
 			// from 1.4 on, local types should not be accessed across switch case blocks (52221)
-			if (compliance >= ClassFileConstants.JDK1_4 && sourceType.enclosingCase != null) {
+			if (sourceType.enclosingCase != null) {
 				if (!isInsideCase(sourceType.enclosingCase)) {
 					continue;
 				}
@@ -497,7 +500,7 @@ public LocalDeclaration[] findLocalVariableDeclarations(int position) {
 	return null;
 }
 @Override
-public LocalVariableBinding findVariable(char[] variableName, InvocationSite invocationSite) {
+public LocalVariableBinding findVariable(char[] variableName) {
 	int varLength = variableName.length;
 	for (int i = this.localIndex-1; i >= 0; i--) { // lookup backward to reach latest additions first
 		LocalVariableBinding local = this.locals[i];
@@ -823,12 +826,6 @@ public VariableBinding[] getEmulationPath(LocalVariableBinding outerLocalVariabl
 	MethodScope currentMethodScope = methodScope();
 	SourceTypeBinding sourceType = currentMethodScope.enclosingSourceType();
 
-	// identity check
-	BlockScope variableScope = outerLocalVariable.declaringScope;
-	if (variableScope == null /*val$this$0*/ || currentMethodScope == variableScope.methodScope()) {
-		return new VariableBinding[] { outerLocalVariable };
-		// implicit this is good enough
-	}
 	if (currentMethodScope.isLambdaScope()) {
 		LambdaExpression lambda = (LambdaExpression) currentMethodScope.referenceContext;
 		SyntheticArgumentBinding syntheticArgument;
@@ -836,6 +833,14 @@ public VariableBinding[] getEmulationPath(LocalVariableBinding outerLocalVariabl
 			return new VariableBinding[] { syntheticArgument };
 		}
 	}
+
+	// identity check
+	BlockScope variableScope = outerLocalVariable.declaringScope;
+	if (variableScope == null /*val$this$0*/ || currentMethodScope == variableScope.methodScope()) {
+		return new VariableBinding[] { outerLocalVariable };
+		// implicit this is good enough
+	}
+
 	// use synthetic constructor arguments if possible
 	if (currentMethodScope.isInsideInitializerOrConstructor()
 		&& (sourceType.isNestedType())) {
@@ -870,7 +875,8 @@ public Object[] getEmulationPath(ReferenceBinding targetEnclosingType, boolean o
 	SourceTypeBinding sourceType = currentMethodScope.enclosingSourceType();
 
 	// use 'this' if possible
-	if (!currentMethodScope.isStatic && !currentMethodScope.isConstructorCall) {
+	if (!currentMethodScope.isStatic && !currentMethodScope.isConstructorCall
+			&& !isInsideEarlyConstructionContext(targetEnclosingType, true)) {
 		if (TypeBinding.equalsEquals(sourceType, targetEnclosingType) || (!onlyExactMatch && sourceType.findSuperTypeOriginatingFrom(targetEnclosingType) != null)) {
 			return BlockScope.EmulationPathToImplicitThis; // implicit this is good enough
 		}
@@ -926,7 +932,9 @@ public Object[] getEmulationPath(ReferenceBinding targetEnclosingType, boolean o
 	FieldBinding syntheticField = sourceType.getSyntheticField(targetEnclosingType, onlyExactMatch);
 	Object[] synEAoL = currentMethodScope.getSyntheticEnclosingArgumentOfLambda(targetEnclosingType);
 	if (syntheticField != null) {
-		if (currentMethodScope.isConstructorCall){
+		boolean inEarlyConstructionContext = JavaFeature.FLEXIBLE_CONSTRUCTOR_BODIES.isSupported(compilerOptions())
+				&& currentMethodScope.isInsideEarlyConstructionContext(sourceType, false);
+		if (currentMethodScope.isConstructorCall || inEarlyConstructionContext){
 			return synEAoL != null ? synEAoL : BlockScope.NoEnclosingInstanceInConstructorCall;
 		}
 		return new Object[] { syntheticField };
@@ -969,7 +977,18 @@ public Object[] getEmulationPath(ReferenceBinding targetEnclosingType, boolean o
 				|| (!onlyExactMatch && currentType.findSuperTypeOriginatingFrom(targetEnclosingType) != null))	break;
 
 			if (currentMethodScope != null) {
-				currentMethodScope = currentMethodScope.enclosingMethodScope();
+				// search for an enclosing method scope still inside targetEnclosingType
+				Scope enclosingScope = currentMethodScope.parent;
+				currentMethodScope = null;
+				while (enclosingScope != null) {
+					if (enclosingScope instanceof ClassScope cs && TypeBinding.equalsEquals(cs.referenceContext.binding, targetEnclosingType)) {
+						break; // any scopes outward from here are irrelevant
+					} else if (enclosingScope instanceof MethodScope ms) {
+						currentMethodScope = ms; // found, check this scope below
+						break;
+					}
+					enclosingScope = enclosingScope.parent;
+				}
 				if (currentMethodScope != null && currentMethodScope.isConstructorCall){
 					return BlockScope.NoEnclosingInstanceInConstructorCall;
 				}
@@ -1250,8 +1269,7 @@ public void checkUnclosedCloseables(FlowInfo flowInfo, FlowContext flowContext, 
 			reportResourceLeak(trackingVar, locToBlame, status, exitAtEndOfMethod);
 		} else if (status == FlowInfo.NON_NULL) {
 			// properly closed but not managed by t-w-r: lowest priority
-			if (environment().globalOptions.complianceLevel >= ClassFileConstants.JDK1_7)
-				trackingVar.reportExplicitClosing(problemReporter());
+			trackingVar.reportExplicitClosing(problemReporter());
 		}
 	}
 	if (location == null || exitAtEndOfMethod) {

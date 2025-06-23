@@ -37,7 +37,7 @@ import org.eclipse.jdt.internal.compiler.lookup.ExtraCompilerModifiers;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 import org.eclipse.jdt.internal.compiler.parser.RecoveryScanner;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
-import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
+import org.eclipse.jdt.internal.compiler.parser.TerminalToken;
 import org.eclipse.jdt.internal.core.ModuleDescriptionInfo.ModuleReferenceInfo;
 import org.eclipse.jdt.internal.core.ModuleDescriptionInfo.PackageExportInfo;
 import org.eclipse.jdt.internal.core.ModuleDescriptionInfo.ServiceInfo;
@@ -771,7 +771,11 @@ public class DOMToModelPopulator extends ASTVisitor {
 			return new SimpleEntry<>(null, IMemberValuePair.K_UNKNOWN);
 		}
 		if (dom instanceof StringLiteral stringValue) {
-			return new SimpleEntry<>(stringValue.getLiteralValue(), IMemberValuePair.K_STRING);
+			try {
+				return new SimpleEntry<>(stringValue.getLiteralValue(), IMemberValuePair.K_STRING);
+			} catch (IllegalArgumentException e) {
+				// lombok oddity, let's ignore
+			}
 		}
 		if (dom instanceof BooleanLiteral booleanValue) {
 			return new SimpleEntry<>(booleanValue.booleanValue(), IMemberValuePair.K_BOOLEAN);
@@ -842,18 +846,18 @@ public class DOMToModelPopulator extends ASTVisitor {
 		Scanner scanner = new Scanner();
 		scanner.setSource(token.toCharArray());
 		try {
-			int tokenType = scanner.getNextToken();
+			TerminalToken tokenType = scanner.getNextToken();
 			return switch(tokenType) {
-				case TerminalTokens.TokenNameDoubleLiteral -> IMemberValuePair.K_DOUBLE;
-				case TerminalTokens.TokenNameIntegerLiteral -> IMemberValuePair.K_INT;
-				case TerminalTokens.TokenNameFloatingPointLiteral -> IMemberValuePair.K_FLOAT;
-				case TerminalTokens.TokenNameLongLiteral -> IMemberValuePair.K_LONG;
-				case TerminalTokens.TokenNameMINUS ->
+				case TokenNameDoubleLiteral -> IMemberValuePair.K_DOUBLE;
+				case TokenNameIntegerLiteral -> IMemberValuePair.K_INT;
+				case TokenNameFloatingPointLiteral -> IMemberValuePair.K_FLOAT;
+				case TokenNameLongLiteral -> IMemberValuePair.K_LONG;
+				case TokenNameMINUS ->
 					switch (scanner.getNextToken()) {
-						case TerminalTokens.TokenNameDoubleLiteral -> IMemberValuePair.K_DOUBLE;
-						case TerminalTokens.TokenNameIntegerLiteral -> IMemberValuePair.K_INT;
-						case TerminalTokens.TokenNameFloatingPointLiteral -> IMemberValuePair.K_FLOAT;
-						case TerminalTokens.TokenNameLongLiteral -> IMemberValuePair.K_LONG;
+						case TokenNameDoubleLiteral -> IMemberValuePair.K_DOUBLE;
+						case TokenNameIntegerLiteral -> IMemberValuePair.K_INT;
+						case TokenNameFloatingPointLiteral -> IMemberValuePair.K_FLOAT;
+						case TokenNameLongLiteral -> IMemberValuePair.K_LONG;
 						default -> throw new IllegalArgumentException("Invalid number literal : >" + token + "<"); //$NON-NLS-1$//$NON-NLS-2$
 					};
 				default -> throw new IllegalArgumentException("Invalid number literal : >" + token + "<"); //$NON-NLS-1$//$NON-NLS-2$
@@ -1183,10 +1187,12 @@ public class DOMToModelPopulator extends ASTVisitor {
 	private static int getStartConsideringLeadingComments(ASTNode node) {
 		int start = node.getStartPosition();
 		var unit = domUnit(node);
-		int index = unit.firstLeadingCommentIndex(node);
-		if (index >= 0 && index <= unit.getCommentList().size()) {
-			Comment comment = (Comment)unit.getCommentList().get(index);
-			start = comment.getStartPosition();
+		if (unit != null) {
+			int index = unit.firstLeadingCommentIndex(node);
+			if (index >= 0 && index <= unit.getCommentList().size()) {
+				Comment comment = (Comment)unit.getCommentList().get(index);
+				start = comment.getStartPosition();
+			}
 		}
 		return start;
 	}

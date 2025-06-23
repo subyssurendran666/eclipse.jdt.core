@@ -290,7 +290,6 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext,
 
 		// Generate code for the condition
 		falseLabel = new BranchLabel(codeStream);
-		falseLabel.tagBits |= BranchLabel.USED;
 		this.condition.generateOptimizedBoolean(
 			currentScope,
 			codeStream,
@@ -329,14 +328,8 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext,
 				// End of if statement
 				endifLabel.place();
 			}
-			if (valueRequired) {
-				if (this.valueIfFalse.resolvedType == TypeBinding.NULL) {
-					if (!this.resolvedType.isBaseType()) {
-						codeStream.operandStack.pop(TypeBinding.NULL);
-						codeStream.operandStack.push(this.resolvedType);
-					}
-				}
-			}
+			if (valueRequired && codeStream.operandStack.peek() == TypeBinding.NULL)
+				codeStream.operandStack.cast(this.resolvedType);
 		}
 		// May loose some local variable initializations : affecting the local variable attributes
 		if (this.mergedInitStateIndex != -1) {
@@ -815,7 +808,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext,
 	@Override
 	public boolean isCompatibleWith(TypeBinding left, Scope scope) {
 		if (!isPolyExpression())
-			super.isCompatibleWith(left, scope);
+			return super.isCompatibleWith(left, scope);
 
 		scope.include(this.condition.bindingsWhenTrue());
 		try {

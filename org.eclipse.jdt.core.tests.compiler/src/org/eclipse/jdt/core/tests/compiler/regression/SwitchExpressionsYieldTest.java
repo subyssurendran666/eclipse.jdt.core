@@ -486,7 +486,7 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 					"1. ERROR in X.java (at line 8)\n" +
 					"	default :v = 2;\n" +
 					"	            ^^\n" +
-					"A switch labeled block in a switch expression should not complete normally\n" +
+					"A switch labeled block in a switch expression must yield a value or throw an an exception\n" +
 					"----------\n";
 			this.runNegativeTest(
 					testFiles,
@@ -2127,6 +2127,11 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 			"	continue;\n" +
 			"	^^^^^^^^^\n" +
 			"Continue out of switch expressions not permitted\n" +
+			"----------\n" +
+			"2. ERROR in X.java (at line 11)\n" +
+			"	continue;\n" +
+			"	       ^^\n" +
+			"A switch labeled block in a switch expression must yield a value or throw an an exception\n" +
 			"----------\n");
 	}
 	public void testBug544073_077() {
@@ -4989,7 +4994,7 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 		"1. ERROR in X.java (at line 9)\n" +
 		"	default :v = 2;\n" +
 		"	            ^^\n" +
-		"A switch labeled block in a switch expression should not complete normally\n" +
+		"A switch labeled block in a switch expression must yield a value or throw an an exception\n" +
 		"----------\n");
 	}
 	public void testBug562728_006() {
@@ -5021,12 +5026,12 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 		"1. ERROR in X.java (at line 8)\n" +
 		"	case 2 ->{v = 2;}\n" +
 		"	               ^^\n" +
-		"A switch labeled block in a switch expression should not complete normally\n" +
+		"A switch labeled block in a switch expression must yield a value or throw an an exception\n" +
 		"----------\n" +
 		"2. ERROR in X.java (at line 9)\n" +
 		"	default ->{v = 2;}\n" +
 		"	                ^^\n" +
-		"A switch labeled block in a switch expression should not complete normally\n" +
+		"A switch labeled block in a switch expression must yield a value or throw an an exception\n" +
 		"----------\n");
 	}
     public void testBug562728_007() {
@@ -5113,7 +5118,7 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 		"1. ERROR in X.java (at line 13)\n" +
 		"	}\n" +
 		"	^^\n" +
-		"A switch labeled block in a switch expression should not complete normally\n" +
+		"A switch labeled block in a switch expression must yield a value or throw an an exception\n" +
         "----------\n");
 }
     public void testBug563023_003() {
@@ -5142,7 +5147,7 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 		"1. ERROR in X.java (at line 10)\n" +
 		"	}\n" +
 		"	^^\n" +
-		"A switch labeled block in a switch expression should not complete normally\n" +
+		"A switch labeled block in a switch expression must yield a value or throw an an exception\n" +
         "----------\n");
 }
     public void testBug563023_004() {
@@ -5202,7 +5207,7 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 		"1. ERROR in X.java (at line 11)\n" +
 		"	}\n" +
 		"	^^\n" +
-		"A switch labeled block in a switch expression should not complete normally\n" +
+		"A switch labeled block in a switch expression must yield a value or throw an an exception\n" +
         "----------\n");
 }
 	public void testBug563023_006() {
@@ -5269,7 +5274,7 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 		"2. ERROR in X.java (at line 10)\n" +
 		"	}\n" +
 		"	^^\n" +
-		"A switch labeled block in a switch expression should not complete normally\n" +
+		"A switch labeled block in a switch expression must yield a value or throw an an exception\n" +
         "----------\n");
 }
 	public void testBug563147_001() {
@@ -7669,19 +7674,12 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 				}
 				"""
 				},
-				this.complianceLevel < ClassFileConstants.JDK21 ?
-				"----------\n"
-				+ "1. ERROR in X.java (at line 7)\n"
-				+ "	switch (foo()) {\n"
-				+ "	        ^^^^^\n"
-				+ "Cannot switch on a value of type void. Only convertible int values, strings or enum variables are permitted\n"
-				+ "----------\n" :
-						"----------\n"
-						+ "1. ERROR in X.java (at line 8)\n"
-						+ "	case 1.0 -> System.out.println(d);\n"
-						+ "	     ^^^\n"
-						+ "Case constant of type double is incompatible with switch selector type void\n"
-						+ "----------\n");
+				"----------\n" +
+				"1. ERROR in X.java (at line 7)\n" +
+				"	switch (foo()) {\n" +
+				"	        ^^^^^\n" +
+				"This expression yields no value\n" +
+				"----------\n");
 	}
 	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/2382
 	// VerifyError in switch expression on double
@@ -7788,7 +7786,7 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 				+ "1. ERROR in X.java (at line 7)\n"
 				+ "	switch (foo()) {\n"
 				+ "	        ^^^^^\n"
-				+ "Cannot switch on a value of type void. Only convertible int values, strings or enum variables are permitted\n"
+				+ "This expression yields no value\n"
 				+ "----------\n"
 				+ "2. ERROR in X.java (at line 8)\n"
 				+ "	case null -> System.out.println(d);\n"
@@ -7799,12 +7797,12 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 						"1. ERROR in X.java (at line 7)\n" +
 						"	switch (foo()) {\n" +
 						"	        ^^^^^\n" +
-						"An enhanced switch statement should be exhaustive; a default label expected\n" +
+						"This expression yields no value\n" +
 						"----------\n" +
-						"2. ERROR in X.java (at line 8)\n" +
-						"	case null -> System.out.println(d);\n" +
-						"	     ^^^^\n" +
-						"Case constant of type null is incompatible with switch selector type void\n" +
+						"2. ERROR in X.java (at line 7)\n" +
+						"	switch (foo()) {\n" +
+						"	        ^^^^^\n" +
+						"An enhanced switch statement should be exhaustive; a default label expected\n" +
 						"----------\n");
 	}
 	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/2387
@@ -8320,5 +8318,165 @@ public class SwitchExpressionsYieldTest extends AbstractRegressionTest {
 				"""
 				},
 				"Yield = 42");
+	}
+
+	// https://bugs.eclipse.org/bugs/show_bug.cgi?id=566124
+	// Widening conversions combined with method invocation and switch expressions doesn't work
+	public void testBug566124() {
+		this.runConformTest(
+				new String[] {
+				"X.java",
+				"""
+				public class X  {
+				    @SuppressWarnings("deprecation")
+				    public void bar(int i) {
+					boolean isNumeric = foo( switch(i+1) {
+					   case 0 -> new Short((short)0);
+					   case 2 -> new Double(2.0d);
+					   default -> new Integer((short)6);
+				    	});
+				    	System.out.println(isNumeric);
+				    }
+				    boolean foo(short data){ return false; }
+				    boolean foo(byte data){ return false; }
+				    boolean foo(int data){ return false; }
+				    boolean foo(float data){ return false; }
+				    boolean foo(long data){ return false; }
+				    boolean foo(double data){ return true; }
+
+				    public static void main(String[] args) {
+						X x = new X();
+						x.bar(-1);
+					}
+				}
+				"""
+				},
+				"true");
+	}
+
+	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/3481
+	// [Switch Expression] yield does not work with bitwise complement ~
+	public void testIssue3481() {
+		this.runConformTest(
+				new String[] {
+				"X.java",
+				"""
+				public class X {
+				    int a = switch(0) {
+				        default -> {
+				            yield ~1;
+				        }
+				    };
+				    int b = switch(0) {
+				        default -> {
+				            int x = 0;
+				            yield ~x;
+				        }
+				    };
+				    int c = switch (0) {
+				        case 0 -> {
+				            yield ~2;
+				        }
+				        default -> 1;
+				    };
+
+				    {
+				        System.out.println("a = " + a + " b = " + b + " c = " + c);
+				    }
+
+				    public static void main(String [] args) {
+				        new X();
+				    }
+				}
+				"""
+				},
+				"a = -2 b = -1 c = -3");
+	}
+
+	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/3554
+	// [Switch Expressions] ArrayIndexOutOfBoundsException in Scope.leastContainingInvocation for sealed class and switch
+	public void testIssue3554() {
+		if (this.complianceLevel < ClassFileConstants.JDK21)
+			return;
+		this.runNegativeTest(
+				new String[] {
+				"X.java",
+				"""
+				public class X {
+
+					sealed interface Index {
+
+						enum TimeIndex implements Index {
+							SECONDS;
+						}
+					}
+
+					public class AbstractLine<S extends Index> {}
+
+					public class AbstractTimeLine extends AbstractLine<X.Index.TimeIndex> {}
+
+					@SuppressWarnings("unchecked")
+					public static <S extends Index> AbstractLine<S> create(int id, S index, int owner) {
+						return (AbstractLine<S>) switch (index) {
+							case X.Index.TimeIndex tindex when tindex == X.Index.TimeIndex.SECONDS -> new AbstractTimeLine();
+							default -> new AbstractLine<>(state().newId(), index, owner);
+						};
+					}
+				}
+				"""
+				},
+				"----------\n" +
+				"1. ERROR in X.java (at line 18)\n" +
+				"	default -> new AbstractLine<>(state().newId(), index, owner);\n" +
+				"	                              ^^^^^\n" +
+				"The method state() is undefined for the type X\n" +
+				"----------\n");
+	}
+
+	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/3920
+	// Java 24 switch expression and type inference generates wrong/unsecure bytecode
+	public void testIssue3920() {
+		this.runConformTest(
+				new String[] {
+				"X.java",
+				"""
+				import java.util.List;
+				import java.util.stream.Collectors;
+
+				public class X {
+					public static void main(String[] args) {
+						var l = List.of("A","B");
+						int i = 12;
+						var t = switch(i) {
+						case 1 -> l.stream().collect(Collectors.joining(" "));
+						default -> "Fixed!";
+						};
+						System.out.println(t);
+					}
+				}
+				"""
+				},
+				"Fixed!");
+	}
+
+	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4113
+	// ECJ Internal Error when compiling
+	public void testIssue4113() {
+		this.runConformTest(
+				new String[] {
+				"X.java",
+				"""
+				public class X {
+				    public static void main(String[] args) {
+				        try {
+				            int length = ((Object[]) null).length;
+			            } catch (NullPointerException npe) {
+			                System.out.println("NPE!");
+			            }
+				    }
+				}
+				"""
+				},
+				"NPE!");
 	}
 }

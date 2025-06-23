@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2024 IBM Corporation and others.
+ * Copyright (c) 2000, 2025 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -127,15 +127,8 @@ public FlowInfo analyseAssignment(BlockScope currentScope, FlowContext flowConte
 			} else {
 				this.bits &= ~ASTNode.FirstAssignmentToLocal;
 			}
-			if (flowInfo.isPotentiallyAssigned(localBinding) || (this.bits & ASTNode.IsCapturedOuterLocal) != 0) {
-				localBinding.tagBits &= ~TagBits.IsEffectivelyFinal;
-				if (!isFinal) {
-					if ((this.bits & ASTNode.IsCapturedOuterLocal) != 0) {
-						currentScope.problemReporter().cannotReferToNonEffectivelyFinalOuterLocal(localBinding, this);
-					} else if ((this.bits & ASTNode.IsUsedInPatternGuard) != 0) {
-						currentScope.problemReporter().cannotReferToNonFinalLocalInGuard(localBinding, this);
-					}
-				}
+			if (flowInfo.isPotentiallyAssigned(localBinding) || (this.bits & (IsCapturedOuterLocal | IsUsedInPatternGuard)) != 0) {
+				localBinding.clearEffectiveFinality(currentScope, this, !isFinal);
 			}
 			if (! isFinal && (localBinding.tagBits & TagBits.IsEffectivelyFinal) != 0 && (localBinding.tagBits & TagBits.IsArgument) == 0) {
 				flowContext.recordSettingFinal(localBinding, this, flowInfo);
@@ -175,9 +168,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, FlowInfo flowInfo, boolean valueRequired) {
 	switch (this.bits & ASTNode.RestrictiveFlagMASK) {
 		case Binding.FIELD : // reading a field
-			if (valueRequired || currentScope.compilerOptions().complianceLevel >= ClassFileConstants.JDK1_4) {
-				manageSyntheticAccessIfNecessary(currentScope, flowInfo, true /*read-access*/);
-			}
+			manageSyntheticAccessIfNecessary(currentScope, flowInfo, true /*read-access*/);
 			// check if reading a final blank field
 			FieldBinding fieldBinding = (FieldBinding) this.binding;
 			if (fieldBinding.isBlankFinal() && currentScope.needBlankFinalFieldInitializationCheck(fieldBinding)) {
@@ -196,6 +187,9 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 				localBinding.useFlag = LocalVariableBinding.USED;
 			} else if (localBinding.useFlag == LocalVariableBinding.UNUSED) {
 				localBinding.useFlag = LocalVariableBinding.FAKE_USED;
+			}
+			if ((this.bits & (IsCapturedOuterLocal | IsUsedInPatternGuard)) != 0) {
+				localBinding.checkEffectiveFinality(currentScope, this);
 			}
 	}
 	if (valueRequired) {
@@ -487,8 +481,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 					codeStream.recordPositionsFrom(pc, this.sourceStart);
 					return;
 				}
-				// checkEffectiveFinality() returns if it's outer local
-				if (checkEffectiveFinality(localBinding, currentScope)) {
+				if ((this.bits & ASTNode.IsCapturedOuterLocal) != 0) {
 					// outer local can be reached either through a synthetic arg or a synthetic field
 					VariableBinding[] path = currentScope.getEmulationPath(localBinding);
 					codeStream.generateOuterAccess(path, this, localBinding, currentScope);
@@ -1017,10 +1010,6 @@ public TypeBinding resolveType(BlockScope scope) {
 						this.bits &= ~ASTNode.RestrictiveFlagMASK;  // clear bits
 						this.bits |= Binding.LOCAL;
 						((LocalVariableBinding) this.binding).markReferenced();
-						if (!variable.isFinal() && (this.bits & ASTNode.IsCapturedOuterLocal) != 0) {
-							if (scope.compilerOptions().sourceLevel < ClassFileConstants.JDK1_8) // for 8, defer till effective finality could be ascertained.
-								scope.problemReporter().cannotReferToNonFinalOuterLocal((LocalVariableBinding)variable, this);
-						}
 						checkLocalStaticClassVariables(scope, variable);
 						variableType = variable.type;
 						this.constant = (this.bits & ASTNode.IsStrictlyAssigned) == 0 ? variable.constant(scope) : Constant.NotAConstant;

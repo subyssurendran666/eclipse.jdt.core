@@ -376,16 +376,6 @@ public abstract class Annotation extends Expression {
 					}
 				}
 				break;
-			case TypeIds.T_JdkInternalPreviewFeature :
-				tagBits |= TagBits.AnnotationPreviewFeature;
-				for (MemberValuePair memberValuePair : memberValuePairs()) {
-					if (CharOperation.equals(memberValuePair.name, TypeConstants.ESSENTIAL_API)) {
-						if (memberValuePair.value instanceof TrueLiteral) {
-							tagBits |= TagBits.EssentialAPI;
-						}
-					}
-				}
-				break;
 			// marker annotations
 			case TypeIds.T_JavaLangDeprecated :
 				tagBits |= TagBits.AnnotationDeprecated;
@@ -1020,8 +1010,7 @@ public abstract class Annotation extends Expression {
 							sourceMethod.tagBits &= ~TagBits.AnnotationNullMASK; // avoid secondary problems
 						}
 						if (nullBits != 0 && sourceMethod.isConstructor()) {
-							if (compilerOptions.sourceLevel >= ClassFileConstants.JDK1_8)
-								scope.problemReporter().nullAnnotationUnsupportedLocation(this);
+							scope.problemReporter().nullAnnotationUnsupportedLocation(this);
 							// for declaration annotations the inapplicability will be reported below
 							sourceMethod.tagBits &= ~TagBits.AnnotationNullMASK;
 						}
@@ -1162,19 +1151,10 @@ public abstract class Annotation extends Expression {
 			case Binding.PACKAGE :
 				if ((metaTagBits & TagBits.AnnotationForPackage) != 0)
 					return AnnotationTargetAllowed.YES;
-				else if (scope.compilerOptions().sourceLevel <= ClassFileConstants.JDK1_6) {
-					SourceTypeBinding sourceType = (SourceTypeBinding) recipient;
-					if (CharOperation.equals(sourceType.sourceName, TypeConstants.PACKAGE_INFO_NAME))
-						return AnnotationTargetAllowed.YES;
-				}
 				break;
 			case Binding.TYPE_USE :
 				if ((metaTagBits & TagBits.AnnotationForTypeUse) != 0) {
 					// jsr 308
-					return AnnotationTargetAllowed.YES;
-				}
-				if (scope.compilerOptions().sourceLevel < ClassFileConstants.JDK1_8) {
-					// already reported as syntax error; don't report secondary problems
 					return AnnotationTargetAllowed.YES;
 				}
 				break;
@@ -1228,8 +1208,7 @@ public abstract class Annotation extends Expression {
 				}
 				break;
 			case Binding.RECORD_COMPONENT :
-				/* JLS 14 9.7.4 Record Preview
-				 * It is a compile-time error if an annotation of type T is syntactically a modifier for:
+				/* It is a compile-time error if an annotation of type T is syntactically a modifier for:
 				 * ...
 				 * a record component but T is not applicable to record component declarations, field declarations,
 				 * method declarations, or type contexts.
@@ -1237,7 +1216,7 @@ public abstract class Annotation extends Expression {
 				long recordComponentMask = TagBits.AnnotationForRecordComponent |
 				TagBits.AnnotationForField |
 				TagBits.AnnotationForMethod |
-				TagBits.AnnotationForParameter | // See JLS 14 8.10.4 Records Preview - TODO revisit in J15
+				TagBits.AnnotationForParameter |
 				TagBits.AnnotationForTypeUse;
 				return (metaTagBits & recordComponentMask) != 0 ? AnnotationTargetAllowed.YES :
 					AnnotationTargetAllowed.NO;
@@ -1300,23 +1279,6 @@ public abstract class Annotation extends Expression {
 			   contexts and in no type contexts.
 			*/
 			return kind == Binding.TYPE_USE ?  AnnotationTargetAllowed.NO_DUE_TO_LACKING_TARGET : AnnotationTargetAllowed.YES;
-		}
-
-		// https://bugs.eclipse.org/bugs/show_bug.cgi?id=391201
-		if ((metaTagBits & TagBits.AnnotationForDeclarationMASK) == 0
-				&& (metaTagBits & TagBits.AnnotationForTypeUse) != 0) {
-			if (scope.compilerOptions().sourceLevel < ClassFileConstants.JDK1_8) {
-				switch (kind) {
-					case Binding.PACKAGE :
-					case Binding.TYPE :
-					case Binding.GENERIC_TYPE :
-					case Binding.METHOD :
-					case Binding.FIELD :
-					case Binding.LOCAL :
-					case Binding.RECORD_COMPONENT :
-						scope.problemReporter().invalidUsageOfTypeAnnotations(annotation);
-				}
-			}
 		}
 		return isAnnotationTargetAllowed(annotation.recipient, scope, annotationType, kind, metaTagBits);
 	}
@@ -1384,8 +1346,6 @@ public abstract class Annotation extends Expression {
 	// Complain if an attempt to annotate the enclosing type of a static member type is being made.
 	public static void isTypeUseCompatible(TypeReference reference, Scope scope, Annotation[] annotations) {
 		if (annotations == null || reference == null || reference.getAnnotatableLevels() == 1)
-			return;
-		if (scope.environment().globalOptions.sourceLevel < ClassFileConstants.JDK1_8)
 			return;
 
 		TypeBinding resolvedType = reference.resolvedType == null ? null : reference.resolvedType.leafComponentType();

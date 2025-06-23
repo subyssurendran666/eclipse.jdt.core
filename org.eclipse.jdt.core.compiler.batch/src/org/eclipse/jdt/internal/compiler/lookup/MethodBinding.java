@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2024 IBM Corporation and others.
+ * Copyright (c) 2000, 2025 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -49,6 +49,7 @@ import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference.AnnotationPosition;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
+import org.eclipse.jdt.internal.compiler.env.IBinaryAnnotation;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
@@ -63,8 +64,7 @@ public class MethodBinding extends Binding {
 	public ReferenceBinding declaringClass;
 	public TypeVariableBinding[] typeVariables = Binding.NO_TYPE_VARIABLES;
 	char[] signature;
-	public long tagBits;
-	public int extendedTagBits = 0; // See values in the interface ExtendedTagBits
+	public IBinaryAnnotation binaryPreviewAnnotation; // captures the exact preview feature of a preview API
 	// Used only for constructors
 	protected AnnotationBinding [] typeAnnotations = Binding.NO_ANNOTATIONS;
 
@@ -78,6 +78,7 @@ public class MethodBinding extends Binding {
 	public static byte PARAM_NULLITY = (byte) (PARAM_NONNULL | PARAM_NULLABLE);
 	public static byte PARAM_OWNING = 4;
 	public static byte PARAM_NOTOWNING = 8;
+	public static byte PARAM_MISSING_OWNING_ANN = 16;
 
 	public static byte flowBitFromAnnotationTagBit(long tagBit) {
 		if (tagBit == TagBits.AnnotationNonNull)
@@ -308,9 +309,6 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 
 	SourceTypeBinding invocationType = scope.enclosingSourceType();
 	if (this.declaringClass.isInterface() && isStatic() && !isPrivate()) {
-		// Static interface methods can be explicitly invoked only through the type reference of the declaring interface or implicitly in the interface itself or via static import.
-		if (scope.compilerOptions().sourceLevel < ClassFileConstants.JDK1_8)
-			return false;
 		if ((invocationSite.isTypeAccess() || invocationSite.receiverIsImplicitThis()) && TypeBinding.equalsEquals(receiverType, this.declaringClass))
 			return true;
 		return false;
@@ -362,13 +360,8 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	if (isPrivate()) {
 		// answer true if the receiverType is the declaringClass
 		// AND the invocationType and the declaringClass have a common enclosingType
-		receiverCheck: {
-			if (TypeBinding.notEquals(receiverType, this.declaringClass)) {
-				// special tolerance for type variable direct bounds, but only if compliance <= 1.6, see: https://bugs.eclipse.org/bugs/show_bug.cgi?id=334622
-				if (scope.compilerOptions().complianceLevel <= ClassFileConstants.JDK1_6 && receiverType.isTypeVariable() && ((TypeVariableBinding) receiverType).isErasureBoundTo(this.declaringClass.erasure()))
-					break receiverCheck;
-				return false;
-			}
+		if (TypeBinding.notEquals(receiverType, this.declaringClass)) {
+			return false;
 		}
 
 		if (TypeBinding.notEquals(invocationType, this.declaringClass)) {
@@ -526,6 +519,7 @@ protected void fillInDefaultNonNullness(AbstractMethodDeclaration sourceMethod, 
 		this.parameterFlowBits = new byte[this.parameters.length];
 	boolean added = false;
 	int length = this.parameterFlowBits.length;
+	LocalVariableBinding [] argumentBindings = sourceMethod == null ? Binding.NO_ARGUMENT_BINDINGS : sourceMethod.argumentBindings();
 	for (int i = 0; i < length; i++) {
 		if(!needToApplyParameterNonNullDefault.hasNonNullDefaultForParam(i)) {
 			continue;
@@ -537,10 +531,11 @@ protected void fillInDefaultNonNullness(AbstractMethodDeclaration sourceMethod, 
 			added = true;
 			this.parameterFlowBits[i] |= PARAM_NONNULL;
 			if (sourceMethod != null) {
-				sourceMethod.arguments[i].binding.tagBits |= TagBits.AnnotationNonNull;
+				argumentBindings[i].tagBits |= TagBits.AnnotationNonNull;
 			}
 		} else if (sourceMethod != null && (this.parameterFlowBits[i] & PARAM_NONNULL) != 0) {
-			sourceMethod.scope.problemReporter().nullAnnotationIsRedundant(sourceMethod, i);
+			if (!sourceMethod.isCompactConstructor()) // Don't complain about implicit parameter. Also component nullity applies to more than just the parameter.
+				sourceMethod.scope.problemReporter().nullAnnotationIsRedundant(sourceMethod, i);
 		}
 	}
 	if (added)
@@ -567,6 +562,7 @@ protected void fillInDefaultNonNullness18(AbstractMethodDeclaration sourceMethod
 	if (hasNonNullDefaultForParameter.hasAnyNonNullDefault()) {
 		boolean added = false;
 		int length = this.parameters.length;
+		LocalVariableBinding [] argumentBindings = sourceMethod == null ? Binding.NO_ARGUMENT_BINDINGS : sourceMethod.argumentBindings();
 		for (int i = 0; i < length; i++) {
 			if (!hasNonNullDefaultForParameter.hasNonNullDefaultForParam(i))
 				continue;
@@ -579,7 +575,7 @@ protected void fillInDefaultNonNullness18(AbstractMethodDeclaration sourceMethod
 				if (!parameter.isBaseType()) {
 					this.parameters[i] = env.createNonNullAnnotatedType(parameter);
 					if (sourceMethod != null)
-						sourceMethod.arguments[i].binding.type = this.parameters[i];
+						argumentBindings[i].type = this.parameters[i];
 				}
 			}
 		}
@@ -676,7 +672,7 @@ public AnnotationBinding[] getAnnotations() {
 @Override
 public long getAnnotationTagBits() {
 	MethodBinding originalMethod = original();
-	if ((originalMethod.tagBits & TagBits.AnnotationResolved) == 0 && originalMethod.declaringClass instanceof SourceTypeBinding) {
+	if ((originalMethod.extendedTagBits & ExtendedTagBits.AnnotationResolved) == 0 && originalMethod.declaringClass instanceof SourceTypeBinding) {
 		ClassScope scope = ((SourceTypeBinding) originalMethod.declaringClass).scope;
 		if (scope != null) {
 			TypeDeclaration typeDecl = scope.referenceContext;
@@ -867,14 +863,6 @@ public final boolean isFinal() {
 public final boolean isImplementing() {
 	return (this.modifiers & ExtraCompilerModifiers.AccImplementing) != 0;
 }
-
-
-/* Answer true if the method is an implicit method - only for records
-*/
-public final boolean isImplicit() {
-	return (this.extendedTagBits & ExtendedTagBits.isImplicit) != 0;
-}
-
 
 /*
  * Answer true if the receiver is a "public static void main(String[])" method
@@ -1509,6 +1497,17 @@ public boolean notownsParameter(int i) {
 		return (this.parameterFlowBits[i] & PARAM_NOTOWNING) != 0;
 	return false;
 }
+public boolean parameterHasMissingOwningAnnotation(int rank) {
+	if (this.parameterFlowBits != null)
+		return (this.parameterFlowBits[rank] & PARAM_MISSING_OWNING_ANN) != 0;
+	return false;
+}
+public void markMissingOwningAnnotationOnParameter(int rank) {
+	if (this.parameterFlowBits == null)
+		this.parameterFlowBits = new byte[this.parameters.length];
+	this.parameterFlowBits[rank] |= PARAM_MISSING_OWNING_ANN;
+}
+
 /** @return TRUE means @NonNull declared, FALSE means @Nullable declared, null means nothing declared */
 public Boolean getParameterNullness(int idx) {
 	if (this.parameterFlowBits != null) {
@@ -1541,6 +1540,13 @@ public boolean isWellknownMethod(char[][] compoundClassName, char[] wellKnownSel
 public boolean isWellknownMethod(int typeId, char[] wellKnownSelector) {
 	return this.declaringClass.id == typeId
 			&& CharOperation.equals(this.selector, wellKnownSelector);
+}
+public boolean isAsVisible(ReferenceBinding declaringType) {
+		if (declaringType.modifiers == this.modifiers || this.isPublic() || declaringType.isPrivate()) return true;
+		if (declaringType.isPublic()) return false;
+		if (this.isProtected()) return true;
+		if (declaringType.isProtected()) return false;
+		return !this.isPrivate();
 }
 }
 

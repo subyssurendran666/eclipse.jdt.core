@@ -56,8 +56,8 @@ private static Class[] getAllTestClasses() {
 
 		// Compilation unit tests
 		CompilationUnitTests.class,
-		// Compilation unitTests (Java 14)
-		CompilationUnitTests14.class,
+		// Compilation unitTests (Java 16)
+		CompilationUnitTests16.class,
 
 		// Source attachment tests
 		AttachSourceTests.class,
@@ -234,6 +234,9 @@ private static Class[] getAllTestClasses() {
 		ExternalAnnotations17Test.class,
 		ExternalAnnotations18Test.class,
 		ExternalAnnotations9Test.class,
+
+		// Tests regarding resource-annotations (@Owning/@NotOwning):
+		OwningAnnotationModelTests.class,
 
 		// Java model changes related to Java 8
 		JavaElement8Tests.class,

@@ -59,14 +59,13 @@ import org.eclipse.jdt.internal.compiler.ast.NullAnnotationMatching;
 import org.eclipse.jdt.internal.compiler.ast.ParameterizedSingleTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
-import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants.BoundCheckStatus;
 
 /**
  * A parameterized type encapsulates a type with type arguments,
  */
-public class ParameterizedTypeBinding extends ReferenceBinding implements Substitution {
+public class ParameterizedTypeBinding extends ReferenceBinding implements Substitution, HotSwappable {
 
 	protected ReferenceBinding type; // must ensure the type is resolved
 	public TypeBinding[] arguments;
@@ -121,24 +120,14 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	}
 	@Override
 	public RecordComponentBinding[] components() {
-		if ((this.extendedTagBits & ExtendedTagBits.AreRecordComponentsComplete) != 0)
-			return this.components;
-
-		try {
-			RecordComponentBinding[] originalRecordComponents = this.type.components();
-			int length = originalRecordComponents.length;
-			RecordComponentBinding[] parameterizedRecordComponents = new RecordComponentBinding[length];
+		if (this.isRecord() && this.components == null) {
+			RecordComponentBinding[] originalComponents = this.type.components();
+			int length = originalComponents.length;
+			this.components = new RecordComponentBinding[length];
 			for (int i = 0; i < length; i++)
-				// substitute all record components, so as to get updated declaring class at least
-				parameterizedRecordComponents[i] = new ParameterizedRecordComponentBinding(this, originalRecordComponents[i]);
-			this.components = parameterizedRecordComponents;
-		} finally {
-			// if the original record components cannot be retrieved (ex. AbortCompilation), then assume we do not have any record components
-			if (this.components == null)
-				this.components = Binding.NO_COMPONENTS;
-			this.extendedTagBits |= ExtendedTagBits.AreRecordComponentsComplete;
+				this.components[i] = new ParameterizedRecordComponentBinding(this, originalComponents[i]);
 		}
-		return this.components;
+		return this.components != null ? this.components : (this.components = Binding.NO_COMPONENTS);
 	}
 	/**
 	 * Iterate type arguments, and validate them according to corresponding variable bounds.
@@ -168,6 +157,21 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	public boolean canBeInstantiated() {
 		return ((this.tagBits & TagBits.HasDirectWildcard) == 0) && super.canBeInstantiated(); // cannot instantiate param type with wildcard arguments
 	}
+	@Override
+	public TypeBinding findSuperTypeOriginatingFrom(TypeBinding otherType) {
+		// see https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4039 :
+		// if capture makes this and otherType equal, then treat that as the sought super type (for now)
+		TypeBinding capture = InferenceContext18.maybeCapture(this);
+		if (TypeBinding.equalsEquals(capture, otherType))
+			return capture;
+
+		if (otherType instanceof ReferenceBinding otherRef && TypeBinding.equalsEquals(this.type, otherRef.actualType()))
+			return this;
+
+		if (capture != this) //$IDENTITY-COMPARISON$
+			return capture.findSuperTypeOriginatingFrom(otherType);
+		return super.findSuperTypeOriginatingFrom(otherType);
+	}
 
 	/**
 	 * Perform capture conversion for a parameterized type with wildcard arguments
@@ -188,8 +192,6 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 
 		CompilationUnitScope compilationUnitScope = scope.compilationUnitScope();
 		ASTNode cud = compilationUnitScope.referenceContext;
-		long sourceLevel = this.environment.globalOptions.sourceLevel;
-		final boolean needUniqueCapture = sourceLevel >= ClassFileConstants.JDK1_8;
 
 		for (int i = 0; i < length; i++) {
 			TypeBinding argument = originalArguments[i];
@@ -197,10 +199,8 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 				final WildcardBinding wildcard = (WildcardBinding) argument;
 				if (wildcard.boundKind == Wildcard.SUPER && wildcard.bound.id == TypeIds.T_JavaLangObject)
 					capturedArguments[i] = wildcard.bound;
-				else if (needUniqueCapture)
-					capturedArguments[i] = this.environment.createCapturedWildcard(wildcard, contextType, start, end, cud, compilationUnitScope::nextCaptureID);
 				else
-					capturedArguments[i] = new CaptureBinding(wildcard, contextType, start, end, cud, compilationUnitScope.nextCaptureID());
+					capturedArguments[i] = this.environment.createCapturedWildcard(wildcard, contextType, start, end, cud, compilationUnitScope::nextCaptureID);
 			} else {
 				capturedArguments[i] = argument;
 			}
@@ -824,32 +824,6 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 		return ReferenceBinding.binarySearch(fieldName, this.fields);
 	}
 
-	 /**
-	 * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#getComponent(char[], boolean)
-	 */
-	@Override
-	public RecordComponentBinding getComponent(char[] name, boolean needResolve) {
-		if (((this.extendedTagBits & ExtendedTagBits.AreRecordComponentsComplete) == 0)) {
-			for (RecordComponentBinding rcb : this.type.unResolvedComponents()) {
-				if (CharOperation.equals(name, rcb.name)) {
-					return rcb;
-				}
-			}
-			return null;
-		}
-		components(); // ensure record components have been initialized
-		return getRecordComponent(name);
-	}
-	@Override
-	public RecordComponentBinding getRecordComponent(char[] name) {
-		if (this.components != null) {
-			for (RecordComponentBinding rcb : this.components) {
-				if (CharOperation.equals(name, rcb.name))
-					return rcb;
-			}
-		}
-		return null;
-	}
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#getMethods(char[])
 	 */
@@ -1540,6 +1514,7 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	        ReferenceBinding genericSuperclass = this.type.superclass();
 	        if (genericSuperclass == null) return null; // e.g. interfaces
 		    this.superclass = (ReferenceBinding) Scope.substitute(this, genericSuperclass);
+		    this.superclass = (ReferenceBinding) InferenceContext18.maybeCapture(this.superclass);
 			this.typeBits |= (this.superclass.typeBits & TypeIds.InheritableBits);
 			if ((this.typeBits & (TypeIds.BitAutoCloseable|TypeIds.BitCloseable)) != 0) // avoid the side-effects of hasTypeBit()!
 				this.typeBits |= applyCloseableWhitelists(this.environment.globalOptions);
@@ -1558,6 +1533,7 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
     		this.superInterfaces = Scope.substitute(this, this.type.superInterfaces());
     		if (this.superInterfaces != null) {
 	    		for (int i = this.superInterfaces.length; --i >= 0;) {
+	    			this.superInterfaces[i] = (ReferenceBinding) InferenceContext18.maybeCapture(this.superInterfaces[i]);
 	    			this.typeBits |= (this.superInterfaces[i].typeBits & TypeIds.InheritableBits);
 	    			if ((this.typeBits & (TypeIds.BitAutoCloseable|TypeIds.BitCloseable)) != 0) // avoid the side-effects of hasTypeBit()!
 	    				this.typeBits |= applyCloseableWhitelists(this.environment.globalOptions);
@@ -1721,10 +1697,6 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	@Override
 	public FieldBinding[] unResolvedFields() {
 		return this.fields;
-	}
-	@Override
-	public RecordComponentBinding[] unResolvedComponents() {
-		return this.components;
 	}
 
 	@Override

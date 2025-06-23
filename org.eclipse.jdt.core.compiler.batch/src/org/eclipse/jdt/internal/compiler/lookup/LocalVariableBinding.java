@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corporation and others.
+ * Copyright (c) 2000, 2025 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -29,6 +29,7 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Annotation;
+import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.FakedTrackingVariable;
 import org.eclipse.jdt.internal.compiler.ast.Initializer;
 import org.eclipse.jdt.internal.compiler.ast.LambdaExpression;
@@ -175,7 +176,7 @@ public class LocalVariableBinding extends VariableBinding {
 	@Override
 	public AnnotationBinding[] getAnnotations() {
 		if (this.declaringScope == null) {
-			if ((this.tagBits & TagBits.AnnotationResolved) != 0) {
+			if ((this.extendedTagBits & ExtendedTagBits.AnnotationResolved) != 0) {
 				// annotation are already resolved
 				if (this.declaration == null) {
 					return Binding.NO_ANNOTATIONS;
@@ -200,7 +201,7 @@ public class LocalVariableBinding extends VariableBinding {
 		if (sourceType == null)
 			return Binding.NO_ANNOTATIONS;
 
-		if ((this.tagBits & TagBits.AnnotationResolved) == 0) {
+		if ((this.extendedTagBits & ExtendedTagBits.AnnotationResolved) == 0) {
 			if (((this.tagBits & TagBits.IsArgument) != 0) && this.declaration != null) {
 				Annotation[] annotationNodes = this.declaration.annotations;
 				if (annotationNodes != null) {
@@ -339,6 +340,25 @@ public class LocalVariableBinding extends VariableBinding {
 	}
 	public void markReferenced() {
 		// Signal that the name is used - This is for extension in subclasses
+	}
+
+	public void checkEffectiveFinality(Scope scope, Expression node) {
+		if ((this.tagBits & (TagBits.HasToBeEffectivelyFinal | TagBits.IsEffectivelyFinal)) == TagBits.HasToBeEffectivelyFinal) {
+			if ((node.bits & ASTNode.IsCapturedOuterLocal) != 0)
+				scope.problemReporter().localMustBeEffectivelyFinal(this, node, false /* resource ?*/, true /*outer local ?*/);
+			else if ((node.bits & ASTNode.IsUsedInPatternGuard) != 0)
+				scope.problemReporter().cannotReferToNonFinalLocalInGuard(this, node);
+			else if (node.resolvedType != null && node.resolvedType.findSuperTypeOriginatingFrom(TypeIds.T_JavaLangAutoCloseable, false /*AutoCloseable is not a class*/) != null)
+				scope.problemReporter().localMustBeEffectivelyFinal(this, node, true /* resource ?*/, false /*outer local ?*/);
+			else
+				scope.problemReporter().localMustBeEffectivelyFinal(this, node, false /* resource ?*/, false /*outer local ?*/);
+		}
+	}
+	@Override
+	public void clearEffectiveFinality(Scope scope, Expression node, boolean complain) {
+		this.tagBits &= ~TagBits.IsEffectivelyFinal;
+		if (complain)
+			checkEffectiveFinality(scope, node);
 	}
 
 	public boolean isUninitializedIn(Scope scope) {
