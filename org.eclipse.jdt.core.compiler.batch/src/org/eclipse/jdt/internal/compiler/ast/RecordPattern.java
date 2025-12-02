@@ -128,12 +128,13 @@ public class RecordPattern extends Pattern {
 			}
 		}
 
+		RecordComponentBinding[] componentBindings = this.resolvedType.components();
 		LocalVariableBinding [] bindings = NO_VARIABLES;
 		for (int i = 0, l = this.patterns.length; i < l; ++i) {
 			Pattern p = this.patterns[i];
+			p.setOuterExpressionType(componentBindings[i].type);
 			p.resolveTypeWithBindings(bindings, scope);
 			bindings = LocalVariableBinding.merge(bindings, p.bindingsWhenTrue());
-			p.setOuterExpressionType(this.resolvedType.components()[i].type);
 		}
 
 		if (this.resolvedType == null || !this.resolvedType.isValidBinding()) {
@@ -291,7 +292,7 @@ public class RecordPattern extends Pattern {
 		if (p.isTotalTypeNode && !componentType.isPrimitiveType() &&  p instanceof TypePattern tp) {
 			TypeBinding providedType = tp.resolvedType;
 			if (providedType != null && providedType.isPrimitiveType()) {
-				PrimitiveConversionRoute route = Pattern.findPrimitiveConversionRoute(componentType, providedType, currentScope);
+				PrimitiveConversionRoute route = findPrimitiveConversionRoute(componentType, providedType, currentScope);
 				if (route != PrimitiveConversionRoute.NO_CONVERSION_ROUTE
 						|| !componentType.isPrimitiveType()) {
 					p.isTotalTypeNode = false;

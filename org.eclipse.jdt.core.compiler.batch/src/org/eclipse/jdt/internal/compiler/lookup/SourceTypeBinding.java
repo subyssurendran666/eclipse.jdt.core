@@ -55,15 +55,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.IErrorHandlingPolicy;
 import org.eclipse.jdt.internal.compiler.ast.*;
@@ -83,7 +75,7 @@ public class SourceTypeBinding extends ReferenceBinding {
 	public ReferenceBinding superclass;                    // MUST NOT be modified directly, use setter !
 	public ReferenceBinding[] superInterfaces;             // MUST NOT be modified directly, use setter !
 	private FieldBinding[] fields;                         // MUST NOT be modified directly, use setter !
-	private RecordComponentBinding[] components; 		   // MUST NOT be modified directly, use setter !
+	RecordComponentBinding[] components; 		   // MUST NOT be modified directly, use setter !
 	private MethodBinding[] methods;                       // MUST NOT be modified directly, use setter !
 	public ReferenceBinding[] memberTypes;                 // MUST NOT be modified directly, use setter !
 	public TypeVariableBinding[] typeVariables;            // MUST NOT be modified directly, use setter !
@@ -112,6 +104,7 @@ public class SourceTypeBinding extends ReferenceBinding {
 	public ExternalAnnotationProvider externalAnnotationProvider;
 
 	private SourceTypeBinding nestHost;
+	private Set<SourceTypeBinding> nestMembers;
 
 	public boolean isImplicit = false;
 	public boolean supertypeAnnotationsUpdated = false; // have any supertype annotations been updated during CompleteTypeBindingsSteps.INTEGRATE_ANNOTATIONS_IN_HIERARCHY?
@@ -128,6 +121,7 @@ public SourceTypeBinding(char[][] compoundName, PackageBinding fPackage, ClassSc
 	// expect the fields & methods to be initialized correctly later
 	this.fields = Binding.UNINITIALIZED_FIELDS;
 	this.methods = Binding.UNINITIALIZED_METHODS;
+	this.components = this.isRecord() ? Binding.UNINITIALIZED_COMPONENTS : NO_COMPONENTS;
 	this.prototype = this;
 	this.isImplicit = scope.referenceContext.isImplicitType();
 	computeId();
@@ -145,6 +139,7 @@ public SourceTypeBinding(SourceTypeBinding prototype) {
 	this.permittedTypes = prototype.permittedTypes;
 	this.fields = prototype.fields;
 	this.methods = prototype.methods;
+	this.components = prototype.components;
 	this.memberTypes = prototype.memberTypes;
 	this.typeVariables = prototype.typeVariables;
 	this.environment = prototype.environment;
@@ -764,6 +759,11 @@ public SyntheticMethodBinding addSyntheticRecordOverrideMethod(char[] selector) 
 	}
 	return accessMethod;
 }
+boolean areComponentsInitialized() {
+	if (!isPrototype())
+		return this.prototype.areComponentsInitialized();
+	return this.components != Binding.UNINITIALIZED_COMPONENTS;
+}
 boolean areFieldsInitialized() {
 	if (!isPrototype())
 		return this.prototype.areFieldsInitialized();
@@ -833,12 +833,6 @@ public char[] computeUniqueKey(boolean isLeaf) {
 private void checkAnnotationsInType() {
 	// check @Deprecated annotation
 	getAnnotationTagBits(); // marks as deprecated by side effect
-	ReferenceBinding enclosingType = enclosingType();
-	if (enclosingType != null && enclosingType.isViewedAsDeprecated() && !isDeprecated()) {
-		this.modifiers |= ExtraCompilerModifiers.AccDeprecatedImplicitly;
-		this.tagBits |= (enclosingType.tagBits & TagBits.AnnotationTerminallyDeprecated);
-	}
-
 	for (ReferenceBinding memberType : this.memberTypes)
 		((SourceTypeBinding) memberType).checkAnnotationsInType();
 }
@@ -882,6 +876,34 @@ private void complainIfUnpermittedSubtyping() {
 		}
 	}
 
+	if (typeDecl.permittedTypes != null) {
+		for (TypeReference permittedTypeRef : typeDecl.permittedTypes) {
+			TypeBinding permittedType = permittedTypeRef.resolvedType;
+			if (permittedType != null && permittedType.isValidBinding()) {
+				if (isClass()) {
+					ReferenceBinding superClass = permittedType.superclass();
+					superClass = superClass == null ? null : superClass.actualType();
+					if (!TypeBinding.equalsEquals(this, superClass))
+						this.scope.problemReporter().sealedClassNotDirectSuperClassOf(permittedType, permittedTypeRef, this);
+				} else if (isInterface()) {
+					ReferenceBinding[] permittedTypesSuperInterfaces = permittedType.superInterfaces();
+					boolean hierarchyOK = false;
+					if (permittedTypesSuperInterfaces != null) {
+						for (ReferenceBinding superInterface : permittedTypesSuperInterfaces) {
+							superInterface = superInterface == null ? null : superInterface.actualType();
+							if (TypeBinding.equalsEquals(this, superInterface)) {
+								hierarchyOK = true;
+								break;
+							}
+						}
+						if (!hierarchyOK)
+							this.scope.problemReporter().sealedInterfaceNotDirectSuperInterfaceOf(permittedType, permittedTypeRef, this);
+					}
+				}
+			}
+		}
+	}
+
 	for (ReferenceBinding memberType : this.memberTypes)
 		((SourceTypeBinding) memberType).complainIfUnpermittedSubtyping();
 
@@ -897,7 +919,21 @@ public RecordComponentBinding[] components() {
 	if (!isPrototype()) {
 		return this.components = this.prototype.components();
 	}
-	return this.components;
+	if ((this.tagBits & TagBits.HasUnresolvedComponents) == 0)
+		return this.components;
+
+	int length = this.components.length;
+	int count = 0;
+	RecordComponentBinding[] rcbs = length == 0 ? Binding.NO_COMPONENTS : new RecordComponentBinding[length];
+	for (int i = 0; i < length; i++) {
+		if (resolveTypeFor(this.components[i]) != null) {
+			rcbs[count++] = this.components[i];
+		}
+	}
+	if (count != rcbs.length) // remove duplicate or broken components
+		System.arraycopy(rcbs, 0, rcbs = count == 0 ? Binding.NO_COMPONENTS : new RecordComponentBinding[count], 0, count);
+	this.tagBits &= ~TagBits.HasUnresolvedComponents;
+	return setComponents(rcbs);
 }
 
 private VariableBinding resolveTypeFor(VariableBinding variable) {
@@ -908,15 +944,6 @@ private VariableBinding resolveTypeFor(VariableBinding variable) {
 	if ((variable.modifiers & ExtraCompilerModifiers.AccUnresolved) == 0)
 		return variable;
 
-	if ((variable.getAnnotationTagBits() & TagBits.AnnotationDeprecated) != 0)
-		variable.modifiers |= ClassFileConstants.AccDeprecated;
-	if (isViewedAsDeprecated() && !variable.isDeprecated()) {
-		variable.modifiers |= ExtraCompilerModifiers.AccDeprecatedImplicitly;
-		variable.tagBits |= this.tagBits & TagBits.AnnotationTerminallyDeprecated;
-	}
-	if (hasRestrictedAccess())
-		variable.modifiers |= ExtraCompilerModifiers.AccRestrictedAccess;
-
 	MethodScope initializationScope = variable.isStatic()
 		? this.scope.referenceContext.staticInitializerScope
 		: this.scope.referenceContext.initializerScope;
@@ -925,6 +952,7 @@ private VariableBinding resolveTypeFor(VariableBinding variable) {
 		if (variable instanceof FieldBinding field)
 			initializationScope.initializedField = field;
 		AbstractVariableDeclaration variableDeclaration = variable instanceof FieldBinding field ? field.sourceField() : ((RecordComponentBinding) variable).sourceRecordComponent();
+		ASTNode.resolveNullDefaultAnnotations(initializationScope, variableDeclaration.annotations, variable);
 		TypeBinding variableType =
 			variableDeclaration.getKind() == AbstractVariableDeclaration.ENUM_CONSTANT
 				? initializationScope.environment().convertToRawType(this, false /*do not force conversion of enclosing types*/) // enum constant is implicitly of declaring enum type
@@ -953,6 +981,11 @@ private VariableBinding resolveTypeFor(VariableBinding variable) {
 			variable.modifiers |= ExtraCompilerModifiers.AccGenericSignature;
 		}
 
+		if ((variable.getAnnotationTagBits() & TagBits.AnnotationDeprecated) != 0)
+			variable.modifiers |= ClassFileConstants.AccDeprecated;
+		if (hasRestrictedAccess())
+			variable.modifiers |= ExtraCompilerModifiers.AccRestrictedAccess;
+
 		Annotation [] annotations = variableDeclaration.annotations;
 
 		if (variableDeclaration instanceof RecordComponent componentDeclaration) {
@@ -964,7 +997,7 @@ private VariableBinding resolveTypeFor(VariableBinding variable) {
 				return null;
 			}
 			if (componentDeclaration.isUnnamed(this.scope)) {
-				this.scope.problemReporter().illegalUseOfUnderscoreAsAnIdentifier(componentDeclaration.sourceStart, componentDeclaration.sourceEnd, this.scope.compilerOptions().sourceLevel > ClassFileConstants.JDK1_8, true);
+				this.scope.problemReporter().illegalUseOfUnderscoreAsAnIdentifier(componentDeclaration.sourceStart, componentDeclaration.sourceEnd, true, true);
 				componentDeclaration.setBinding(null);
 				return null;
 			}
@@ -1033,6 +1066,9 @@ public FieldBinding[] fields() {
 
 	if ((this.tagBits & TagBits.AreFieldsComplete) != 0)
 		return this.fields;
+
+	if ((this.tagBits & TagBits.HasUnresolvedComponents) != 0)
+		components();
 
 	int failed = 0;
 	FieldBinding[] resolvedFields = this.fields;
@@ -1142,7 +1178,7 @@ public long getAnnotationTagBits() {
 	if (!isPrototype())
 		return this.prototype.getAnnotationTagBits();
 
-	if ((this.extendedTagBits & ExtendedTagBits.AnnotationResolved) == 0 && this.scope != null) {
+	if (!ExtendedTagBits.areAllAnnotationsResolved(this.extendedTagBits) && this.scope != null) {
 		TypeDeclaration typeDecl = this.scope.referenceContext;
 		boolean old = typeDecl.staticInitializerScope.insideTypeAnnotation;
 		try {
@@ -1356,6 +1392,9 @@ public FieldBinding getField(char[] fieldName, boolean needResolve) {
 	if ((this.tagBits & TagBits.AreFieldsComplete) != 0)
 		return ReferenceBinding.binarySearch(fieldName, this.fields);
 
+	if ((this.tagBits & TagBits.HasUnresolvedComponents) != 0)
+		components();
+
 	// lazily sort fields
 	if ((this.tagBits & TagBits.AreFieldsSorted) == 0) {
 		int length = this.fields.length;
@@ -1551,7 +1590,7 @@ void initializeForStaticImports() {
 
 	if (this.superInterfaces == null)
 		this.scope.connectTypeHierarchy();
-	this.scope.collateRecordComponents();
+	this.scope.buildComponents();
 	this.scope.buildFields();
 	this.scope.buildMethods();
 }
@@ -1708,6 +1747,9 @@ public MethodBinding[] methods() {
 	if (!areMethodsInitialized()) { // https://bugs.eclipse.org/384663
 		this.scope.buildMethods();
 	}
+
+	if ((this.tagBits & TagBits.HasUnresolvedComponents) != 0)
+		components();
 
 	// lazily sort methods
 	if ((this.tagBits & TagBits.AreMethodsSorted) == 0) {
@@ -1983,10 +2025,6 @@ private MethodBinding resolveTypesWithSuspendedTempErrorHandlingPolicy(MethodBin
 
 	if ((method.getAnnotationTagBits() & TagBits.AnnotationDeprecated) != 0)
 		method.modifiers |= ClassFileConstants.AccDeprecated;
-	if (isViewedAsDeprecated() && !method.isDeprecated()) {
-		method.modifiers |= ExtraCompilerModifiers.AccDeprecatedImplicitly;
-		method.tagBits |= this.tagBits & TagBits.AnnotationTerminallyDeprecated;
-	}
 	if (hasRestrictedAccess())
 		method.modifiers |= ExtraCompilerModifiers.AccRestrictedAccess;
 
@@ -2295,7 +2333,7 @@ public void evaluateNullAnnotations() {
 	PackageBinding pkg = getPackage();
 	boolean isInDefaultPkg = (pkg.compoundName == CharOperation.NO_CHAR_CHAR);
 	if (!isPackageInfo) {
-		boolean isInNullnessAnnotationPackage = this.scope.environment().isNullnessAnnotationPackage(pkg);
+		boolean isInNullnessAnnotationPackage = (pkg.extendedTagBits & ExtendedTagBits.IsNullAnnotationPackage) != 0;
 		if (pkg.getDefaultNullness() == NO_NULL_DEFAULT && !isInDefaultPkg && !isInNullnessAnnotationPackage && !(this instanceof NestedTypeBinding)) {
 			ReferenceBinding packageInfo = pkg.getType(TypeConstants.PACKAGE_INFO_NAME, this.module);
 			if (packageInfo == null) {
@@ -2385,13 +2423,25 @@ protected boolean hasMethodWithNumArgs(char[] selector, int numArgs) {
 	}
 	return false;
 }
+@Override
+public AnnotationBinding[] getAnnotations(long requestedInitialization) {
+	AnnotationHolder holder = retrieveAnnotationHolder(prototype(), requestedInitialization);
+	return holder == null ? Binding.NO_ANNOTATIONS : holder.getAnnotations();
+}
 
 @Override
 public AnnotationHolder retrieveAnnotationHolder(Binding binding, boolean forceInitialization) {
+	return retrieveAnnotationHolder(binding, ExtendedTagBits.AllAnnotationsResolved);
+}
+private AnnotationHolder retrieveAnnotationHolder(Binding binding, long requestedInitialization) {
 	if (!isPrototype())
-		return this.prototype.retrieveAnnotationHolder(binding, forceInitialization);
-	if (forceInitialization)
-		binding.getAnnotationTagBits(); // ensure annotations are up to date
+		return this.prototype.retrieveAnnotationHolder(binding, requestedInitialization);
+	if (requestedInitialization == ExtendedTagBits.AllAnnotationsResolved) {
+		binding.getAnnotationTagBits(); // ensure all annotations are up to date
+	} else {
+		if ((requestedInitialization & ExtendedTagBits.DeprecatedAnnotationResolved) != 0)
+			binding.initializeDeprecatedAnnotationTagBits(); // selective initialization
+	}
 	return super.retrieveAnnotationHolder(binding, false);
 }
 
@@ -2419,6 +2469,21 @@ public RecordComponentBinding[] setComponents(RecordComponentBinding[] component
 		for (int i = 0, length = annotatedTypes == null ? 0 : annotatedTypes.length; i < length; i++) {
 			SourceTypeBinding annotatedType = (SourceTypeBinding) annotatedTypes[i];
 			annotatedType.components = components;
+		}
+	}
+
+	for (RecordComponentBinding component : components) {
+		for (FieldBinding field : this.fields) {
+			if (CharOperation.equals(field.name, component.name)) { // field got built before record component resolution
+				field.type = component.type;
+				field.modifiers |= component.modifiers & ExtraCompilerModifiers.AccGenericSignature;
+				field.tagBits |= component.tagBits & (TagBits.AnnotationNullMASK | TagBits.AnnotationOwningMASK);
+				if ((component.tagBits & TagBits.HasMissingType) != 0)
+					field.tagBits |= TagBits.HasMissingType;
+				RecordComponent componentDecl = component.sourceRecordComponent();
+				if (componentDecl != null &&  componentDecl.annotations != null)
+					ASTNode.copyRecordComponentAnnotations(this.scope, field, componentDecl.annotations);
+			}
 		}
 	}
 	return this.components = components;
@@ -2833,6 +2898,18 @@ public ModuleBinding module() {
 
 public SourceTypeBinding getNestHost() {
 	return this.nestHost;
+}
+
+public Set<SourceTypeBinding> getNestMembers() {
+	return this.nestMembers;
+}
+
+public void addNestMember(SourceTypeBinding member) {
+	if (!member.equals(this)) {
+		if (this.nestMembers == null)
+			this.nestMembers = new HashSet<>(6);
+		this.nestMembers.add(member);
+	}
 }
 
 public void setNestHost(SourceTypeBinding nestHost) {

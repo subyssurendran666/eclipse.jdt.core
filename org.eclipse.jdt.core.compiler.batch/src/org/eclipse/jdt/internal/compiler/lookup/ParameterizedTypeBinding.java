@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2005, 2023 IBM Corporation and others.
+ * Copyright (c) 2005, 2025 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -53,6 +53,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.NullAnnotationMatching;
@@ -78,6 +79,7 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	public ReferenceBinding[] memberTypes;
 	public MethodBinding[] methods;
 	protected ReferenceBinding enclosingType;
+	boolean isCaptureInProgress;
 
 	public ParameterizedTypeBinding(ReferenceBinding type, TypeBinding[] arguments,  ReferenceBinding enclosingType, LookupEnvironment environment){
 		this.environment = environment;
@@ -160,16 +162,19 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	@Override
 	public TypeBinding findSuperTypeOriginatingFrom(TypeBinding otherType) {
 		// see https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4039 :
-		// if capture makes this and otherType equal, then treat that as the sought super type (for now)
-		TypeBinding capture = InferenceContext18.maybeCapture(this);
-		if (TypeBinding.equalsEquals(capture, otherType))
-			return capture;
+		ReferenceBinding subType = this;
+		// if capture makes subType and otherType equal, then treat that as the sought super type
+		if (otherType instanceof ReferenceBinding && this.typeArgumentDepth() <= otherType.typeArgumentDepth()) { // protect against infinite growth of recursive types under capture
+			subType = CapturingContext.maybeCapture(this);
+			if (TypeBinding.equalsEquals(subType, otherType))
+				return subType;
+		}
 
 		if (otherType instanceof ReferenceBinding otherRef && TypeBinding.equalsEquals(this.type, otherRef.actualType()))
 			return this;
 
-		if (capture != this) //$IDENTITY-COMPARISON$
-			return capture.findSuperTypeOriginatingFrom(otherType);
+		if (subType != this) //$IDENTITY-COMPARISON$
+			return subType.findSuperTypeOriginatingFrom(otherType);
 		return super.findSuperTypeOriginatingFrom(otherType);
 	}
 
@@ -182,37 +187,50 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 		if ((this.tagBits & TagBits.HasDirectWildcard) == 0)
 			return this;
 
-		TypeBinding[] originalArguments = this.arguments;
-		int length = originalArguments.length;
-		TypeBinding[] capturedArguments = new TypeBinding[length];
+		this.isCaptureInProgress = true;
+		try {
+			TypeBinding[] originalArguments = this.arguments;
+			int length = originalArguments.length;
+			TypeBinding[] capturedArguments = new TypeBinding[length];
 
-		// Retrieve the type context for capture bindingKey
-		ReferenceBinding contextType = scope.enclosingSourceType();
-		if (contextType != null) contextType = contextType.outermostEnclosingType(); // maybe null when used programmatically by DOM
+			// Retrieve the type context for capture bindingKey
+			ReferenceBinding contextType = scope.enclosingSourceType();
+			if (contextType != null) contextType = contextType.outermostEnclosingType(); // maybe null when used programmatically by DOM
 
-		CompilationUnitScope compilationUnitScope = scope.compilationUnitScope();
-		ASTNode cud = compilationUnitScope.referenceContext;
+			CompilationUnitScope compilationUnitScope = scope.compilationUnitScope();
+			ASTNode cud = compilationUnitScope.referenceContext;
 
-		for (int i = 0; i < length; i++) {
-			TypeBinding argument = originalArguments[i];
-			if (argument.kind() == Binding.WILDCARD_TYPE) { // no capture for intersection types
-				final WildcardBinding wildcard = (WildcardBinding) argument;
-				if (wildcard.boundKind == Wildcard.SUPER && wildcard.bound.id == TypeIds.T_JavaLangObject)
-					capturedArguments[i] = wildcard.bound;
-				else
-					capturedArguments[i] = this.environment.createCapturedWildcard(wildcard, contextType, start, end, cud, compilationUnitScope::nextCaptureID);
-			} else {
-				capturedArguments[i] = argument;
+			boolean[] freshCaptures = new boolean[length];
+ 			for (int i = 0; i < length; i++) {
+				TypeBinding argument = originalArguments[i];
+				if (argument.kind() == Binding.WILDCARD_TYPE) { // no capture for intersection types
+					final WildcardBinding wildcard = (WildcardBinding) argument;
+					if (wildcard.boundKind == Wildcard.SUPER && wildcard.bound.id == TypeIds.T_JavaLangObject) {
+						capturedArguments[i] = wildcard.bound;
+					} else {
+						capturedArguments[i] = this.environment.createCapturedWildcard(wildcard, contextType, start, end, cud, compilationUnitScope::nextCaptureID);
+						freshCaptures[i] = true;
+					}
+				} else {
+					capturedArguments[i] = argument;
+				}
 			}
-		}
-		ParameterizedTypeBinding capturedParameterizedType = this.environment.createParameterizedType(this.type, capturedArguments, enclosingType(), this.typeAnnotations);
-		for (int i = 0; i < length; i++) {
-			TypeBinding argument = capturedArguments[i];
-			if (argument.isCapture()) {
-				((CaptureBinding)argument).initializeBounds(scope, capturedParameterizedType);
+			ParameterizedTypeBinding capturedParameterizedType = this.environment.createParameterizedType(this.type, capturedArguments, enclosingType(), this.typeAnnotations);
+			for (int i = 0; i < length; i++) {
+				TypeBinding argument = capturedArguments[i];
+				if (freshCaptures[i] && argument.isCapture()) {
+					try {
+						CapturingContext.enter(start, end, scope);
+						((CaptureBinding)argument).initializeBounds(scope, capturedParameterizedType);
+					} finally {
+						CapturingContext.leave();
+					}
+				}
 			}
+			return capturedParameterizedType;
+		} finally {
+			this.isCaptureInProgress = false;
 		}
-		return capturedParameterizedType;
 	}
 
 	/**
@@ -250,116 +268,6 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 			}
 		}
 		return missingTypes;
-	}
-
-	/**
-	 * Collect the substitutes into a map for certain type variables inside the receiver type
-	 * e.g. {@code Collection<T>.collectSubstitutes(Collection<List<X>>, Map)} will populate Map with: {@code T --> List<X>}
-	 * Constraints:
-	 * <pre>{@code
-	 *   A << F   corresponds to:   F.collectSubstitutes(..., A, ..., CONSTRAINT_EXTENDS (1))
-	 *   A = F    corresponds to:   F.collectSubstitutes(..., A, ..., CONSTRAINT_EQUAL (0))
-	 *   A >> F   corresponds to:   F.collectSubstitutes(..., A, ..., CONSTRAINT_SUPER (2))
-	 * }</pre>
-	 */
-	@Override
-	public void collectSubstitutes(Scope scope, TypeBinding actualType, InferenceContext inferenceContext, int constraint) {
-		if ((this.tagBits & TagBits.HasTypeVariable) == 0) {
-			TypeBinding actualEquivalent = actualType.findSuperTypeOriginatingFrom(this.type);
-			if (actualEquivalent != null && actualEquivalent.isRawType()) {
-				inferenceContext.isUnchecked = true;
-			}
-			return;
-		}
-		if (actualType == TypeBinding.NULL || actualType.kind() == POLY_TYPE) return;
-
-		if (!(actualType instanceof ReferenceBinding)) return;
-		TypeBinding formalEquivalent, actualEquivalent;
-		switch (constraint) {
-			case TypeConstants.CONSTRAINT_EQUAL :
-			case TypeConstants.CONSTRAINT_EXTENDS :
-				formalEquivalent = this;
-		        actualEquivalent = actualType.findSuperTypeOriginatingFrom(this.type);
-		        if (actualEquivalent == null) return;
-		        break;
-			case TypeConstants.CONSTRAINT_SUPER :
-	        default:
-		        formalEquivalent = this.findSuperTypeOriginatingFrom(actualType);
-		        if (formalEquivalent == null) return;
-		        actualEquivalent = actualType;
-		        break;
-		}
-		// collect through enclosing type
-		ReferenceBinding formalEnclosingType = formalEquivalent.enclosingType();
-		if (formalEnclosingType != null) {
-			formalEnclosingType.collectSubstitutes(scope, actualEquivalent.enclosingType(), inferenceContext, constraint);
-		}
-		// collect through type arguments
-		if (this.arguments == null) return;
-        TypeBinding[] formalArguments;
-        switch (formalEquivalent.kind()) {
-        	case Binding.GENERIC_TYPE :
-        		formalArguments = formalEquivalent.typeVariables();
-        		break;
-        	case Binding.PARAMETERIZED_TYPE :
-        		formalArguments = ((ParameterizedTypeBinding)formalEquivalent).arguments;
-        		break;
-        	case Binding.RAW_TYPE :
-        		if (inferenceContext.depth > 0) {
-	           		inferenceContext.status = InferenceContext.FAILED; // marker for impossible inference
-        		}
-        		return;
-        	default :
-        		return;
-        }
-        TypeBinding[] actualArguments;
-        switch (actualEquivalent.kind()) {
-        	case Binding.GENERIC_TYPE :
-        		actualArguments = actualEquivalent.typeVariables();
-        		break;
-        	case Binding.PARAMETERIZED_TYPE :
-        		actualArguments = ((ParameterizedTypeBinding)actualEquivalent).arguments;
-        		break;
-        	case Binding.RAW_TYPE :
-        		if (inferenceContext.depth > 0) {
-	           		inferenceContext.status = InferenceContext.FAILED; // marker for impossible inference
-        		} else {
-	        		inferenceContext.isUnchecked = true;
-        		}
-        		return;
-        	default :
-        		return;
-        }
-        inferenceContext.depth++;
-        for (int i = 0, length = formalArguments.length; i < length; i++) {
-        	TypeBinding formalArgument = formalArguments[i];
-        	TypeBinding actualArgument = actualArguments[i];
-        	if (formalArgument.isWildcard()) {
-                formalArgument.collectSubstitutes(scope, actualArgument, inferenceContext, constraint);
-                continue;
-        	} else if (actualArgument.isWildcard()){
-    			WildcardBinding actualWildcardArgument = (WildcardBinding) actualArgument;
-    			if (actualWildcardArgument.otherBounds == null) {
-    				if (constraint == TypeConstants.CONSTRAINT_SUPER) { // JLS 15.12.7, p.459
-						switch(actualWildcardArgument.boundKind) {
-		    				case Wildcard.EXTENDS :
-		    					formalArgument.collectSubstitutes(scope, actualWildcardArgument.bound, inferenceContext, TypeConstants.CONSTRAINT_SUPER);
-		    					continue;
-		    				case Wildcard.SUPER :
-		    					formalArgument.collectSubstitutes(scope, actualWildcardArgument.bound, inferenceContext, TypeConstants.CONSTRAINT_EXTENDS);
-		    					continue;
-		    				default :
-		    					continue; // cannot infer anything further from unbound wildcard
-		    			}
-    				} else {
-    					continue; // cannot infer anything further from wildcard
-    				}
-    			}
-        	}
-        	// by default, use EQUAL constraint
-            formalArgument.collectSubstitutes(scope, actualArgument, inferenceContext, TypeConstants.CONSTRAINT_EQUAL);
-        }
-        inferenceContext.depth--;
 	}
 
 	/**
@@ -500,7 +408,7 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
      */
     @Override
 	public ReferenceBinding upwardsProjection(Scope scope, TypeBinding[] mentionedTypeVariables) {
-    		TypeBinding[] typeVariables = this.arguments;
+		TypeBinding[] typeVariables = this.arguments;
 		if (typeVariables == null) return this; // How would that be possible?
 
 		TypeBinding[] a_i_primes = new TypeBinding[typeVariables.length];
@@ -692,6 +600,10 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	@Override
 	public AnnotationBinding[] getAnnotations() {
 		return this.type.getAnnotations();
+	}
+	@Override
+	public AnnotationBinding[] getAnnotations(long requestedInitialization) {
+		return this.type.getAnnotations(requestedInitialization);
 	}
 
 	@Override
@@ -1514,7 +1426,7 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	        ReferenceBinding genericSuperclass = this.type.superclass();
 	        if (genericSuperclass == null) return null; // e.g. interfaces
 		    this.superclass = (ReferenceBinding) Scope.substitute(this, genericSuperclass);
-		    this.superclass = (ReferenceBinding) InferenceContext18.maybeCapture(this.superclass);
+		    this.superclass = CapturingContext.maybeCapture(this.superclass);
 			this.typeBits |= (this.superclass.typeBits & TypeIds.InheritableBits);
 			if ((this.typeBits & (TypeIds.BitAutoCloseable|TypeIds.BitCloseable)) != 0) // avoid the side-effects of hasTypeBit()!
 				this.typeBits |= applyCloseableWhitelists(this.environment.globalOptions);
@@ -1533,12 +1445,18 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
     		this.superInterfaces = Scope.substitute(this, this.type.superInterfaces());
     		if (this.superInterfaces != null) {
 	    		for (int i = this.superInterfaces.length; --i >= 0;) {
-	    			this.superInterfaces[i] = (ReferenceBinding) InferenceContext18.maybeCapture(this.superInterfaces[i]);
 	    			this.typeBits |= (this.superInterfaces[i].typeBits & TypeIds.InheritableBits);
 	    			if ((this.typeBits & (TypeIds.BitAutoCloseable|TypeIds.BitCloseable)) != 0) // avoid the side-effects of hasTypeBit()!
 	    				this.typeBits |= applyCloseableWhitelists(this.environment.globalOptions);
 	    		}
     		}
+	    }
+	    if (CapturingContext.isActive()) {
+	    	ReferenceBinding[] captured = new ReferenceBinding[this.superInterfaces.length];
+	    	for (int i = 0; i < captured.length; i++) {
+				captured[i] = CapturingContext.maybeCapture(this.superInterfaces[i]);
+			}
+	    	return captured;
 	    }
 		return this.superInterfaces;
 	}
@@ -1695,16 +1613,33 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	}
 
 	@Override
+	public int typeArgumentDepth() {
+		int max = 0;
+		if (!isRawType() && enterRecursiveFunction()) {
+			try {
+				if (this.arguments != null) {
+					for (TypeBinding argument : this.arguments)
+						max = Math.max(max, argument.typeArgumentDepth());
+				}
+			} finally {
+				exitRecursiveFunction();
+			}
+		}
+		return 1 + max;
+	}
+
+	@Override
 	public FieldBinding[] unResolvedFields() {
 		return this.fields;
 	}
 
 	@Override
-	protected MethodBinding[] getInterfaceAbstractContracts(Scope scope, boolean replaceWildcards, boolean filterDefaultMethods) throws InvalidBindingException {
+	protected Stream<MethodBinding> collateFunctionalInterfaceContracts(Scope scope, boolean replaceWildcards, Set<ReferenceBinding> visitedInterfaces) throws DysfunctionalInterfaceException {
 		if (replaceWildcards) {
 			TypeBinding[] types = getNonWildcardParameters(scope);
 			if (types == null)
-				return new MethodBinding[] { new ProblemMethodBinding(TypeConstants.ANONYMOUS_METHOD, null, ProblemReasons.NotAWellFormedParameterizedType) };
+				throw DYSFUNCTIONAL_INTERFACE_EXCEPTION;
+
 			for (int i = 0; i < types.length; i++) {
 				if (TypeBinding.notEquals(types[i], this.arguments[i])) {
 					// non-wildcard parameterization differs from this, so use it:
@@ -1712,14 +1647,15 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 					TypeVariableBinding [] typeParameters = this.type.typeVariables();
 					for (int j = 0, length = typeParameters.length; j < length; j++) {
 						if (!typeParameters[j].boundCheck(declaringType, types[j], scope, null).isOKbyJLS())
-							return new MethodBinding[] { new ProblemMethodBinding(TypeConstants.ANONYMOUS_METHOD, null, ProblemReasons.NotAWellFormedParameterizedType) };
+							throw DYSFUNCTIONAL_INTERFACE_EXCEPTION;
 					}
-					return declaringType.getInterfaceAbstractContracts(scope, replaceWildcards, filterDefaultMethods);
+					return declaringType.collateFunctionalInterfaceContracts(scope, replaceWildcards, visitedInterfaces);
 				}
 			}
 		}
-		return super.getInterfaceAbstractContracts(scope, replaceWildcards, filterDefaultMethods);
+		return super.collateFunctionalInterfaceContracts(scope, replaceWildcards, visitedInterfaces);
 	}
+
 	@Override
 	public MethodBinding getSingleAbstractMethod(final Scope scope, boolean replaceWildcards) {
 		return getSingleAbstractMethod(scope, replaceWildcards, -1, -1 /* do not capture */);

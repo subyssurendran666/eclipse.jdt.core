@@ -6761,8 +6761,8 @@ public class ModuleBuilderTests extends ModifyingResourceTests {
 
 			assertMarkers("Unexpected markers",
 					"Access restriction: The type \'Image\' is not API (restriction on required library '"+ jrtPath + "')\n" +
-					"The type Graphics from module java.desktop may not be accessible to clients due to missing \'requires transitive\'\n" +
-					"Access restriction: The method \'Image.getGraphics()\' is not API (restriction on required library '"+ jrtPath + "')", markers);
+					"The type Graphics from module java.desktop may not be accessible to clients due to missing \'requires transitive\'"
+					, markers);
 		} finally {
 			deleteProject(p1);
 		}
@@ -7266,7 +7266,13 @@ public class ModuleBuilderTests extends ModifyingResourceTests {
 			addLibraryEntry(p2, file.getFullPath(), false);
 			getWorkspace().build(IncrementalProjectBuilder.FULL_BUILD, null);
 			IMarker[] markers = p2.getProject().findMarkers(null, true, IResource.DEPTH_INFINITE);
-			assertMarkers("Unexpected markers", "", markers);
+			sortMarkers(markers);
+			assertMarkers(
+					"Should see one marker for missing jar",
+					"""
+					Archive for required library: 'link.jar' in project 'Bug540904' cannot be read or is not a valid ZIP file
+					The project cannot be built until build path errors are resolved""",
+					markers);
 		} finally {
 			this.deleteProject("Bug540904");
 		}

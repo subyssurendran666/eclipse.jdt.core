@@ -26,6 +26,7 @@ import org.eclipse.jdt.core.tests.compiler.regression.AbstractRegressionTest.Jav
 import org.eclipse.jdt.core.tests.compiler.regression.AbstractRegressionTest.JavacTestOptions.EclipseJustification;
 import org.eclipse.jdt.core.tests.compiler.regression.AbstractRegressionTest.JavacTestOptions.JavacHasABug;
 import org.eclipse.jdt.core.tests.util.Util;
+import org.eclipse.jdt.core.util.ClassFileBytesDisassembler;
 import org.eclipse.jdt.core.util.IAttributeNamesConstants;
 import org.eclipse.jdt.core.util.IClassFileAttribute;
 import org.eclipse.jdt.core.util.IClassFileReader;
@@ -8596,11 +8597,6 @@ public void testGHIssue2096() {
     		"	^^^^^^^^^^^^^^^^\n" +
     		"The type AccessController has been deprecated since version 17 and marked for removal\n" +
     		"----------\n" +
-    		"2. WARNING in X.java (at line 7)\n" +
-    		"	AccessController.doPrivileged((PrivilegedExceptionAction<Boolean>)() ->\n" +
-    		"	                 ^^^^^^^^^^^^\n" +
-    		"The method doPrivileged(PrivilegedExceptionAction<Boolean>) from the type AccessController has been deprecated and marked for removal\n" +
-    		"----------\n" +
     		"3. ERROR in X.java (at line 7)\n" +
     		"	AccessController.doPrivileged((PrivilegedExceptionAction<Boolean>)() ->\n" +
     		"	                                                                  ^^^^^\n" +
@@ -8902,6 +8898,96 @@ public void testIssue3869_6() {
 		    """
 	  },
 	  "Callable");
+}
+// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4204
+// negative testing that the synthetic method - access - not present in the class declaring the private method accessed by a nestmate
+public void testIssue4204() throws Exception {
+
+	this.runConformTest(
+			new String[] {
+					"X.java",
+					"""
+					interface Base {
+						Base get(int x);
+					}
+					public class X {
+						private void privateMethod(int p) {
+							System.out.println("Private method called with " + p);
+						}
+					    <T> Base foo(Base b) {
+					        return b;
+					     }
+					    void bar(Base b) {
+					    	b.get(42);
+					    }
+					    void testCase() {
+					        bar(foo((int p)-> {
+					        	new Object() {
+					        		void foo() {
+					        			privateMethod(p);
+					        		}
+					        	}.foo();
+					        	return null;}
+					        ));
+					     }
+
+					    public static void main(String[] args) {
+							new X().testCase();
+						}
+					}
+					""",
+			},
+			"Private method called with 42");
+
+	if (this.complianceLevel >= ClassFileConstants.JDK11) {
+		String unExpectedPartialOutput = "access$";
+		verifyNegativeClassFile(unExpectedPartialOutput, "X.class", ClassFileBytesDisassembler.SYSTEM);
+	} else {
+		String expectedPartialOutput = "static synthetic void access$0(X arg0, int arg1);";
+		verifyClassFile(expectedPartialOutput, "X.class", ClassFileBytesDisassembler.SYSTEM);
+	}
+}
+// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4433
+// Java 25: java.lang.TypeNotPresentException: Type I not present
+public void testIssue4433() throws Exception {
+
+	this.runConformTest(
+			new String[] {
+					"X.java",
+					"""
+					import java.lang.reflect.Method;
+					import java.util.function.BinaryOperator;
+
+					public class X {
+
+					    public static class A<I> {}
+
+					    public static <I> A<I> a(A<I>... a) {
+					        return null;
+					    }
+
+					    public static <J> J b(BinaryOperator<J> bo) {
+					        return null;
+					    }
+
+					    public <I> void c() {
+					        A<I> d = b(X::a);
+					        System.out.println(d);
+					    }
+
+					    public static void main(String[] args) {
+
+					        Method[] methods = X.class.getDeclaredMethods();
+
+					        for (Method method : methods) {
+					        	if (method.getName().contains("lambda"))
+					        		System.out.println(method.getGenericReturnType());
+					        }
+					    }
+					}
+					""",
+			},
+			"class X$A");
 }
 public static Class testClass() {
 	return LambdaExpressionsTest.class;

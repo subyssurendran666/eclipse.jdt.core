@@ -81,6 +81,7 @@ public class SyntheticMethodBinding extends MethodBinding {
     public static final int RecordOverrideHashCode = 20;
     public static final int RecordOverrideEquals = 21;
     public static final int RecordCanonicalConstructor = 22;
+    public final static int RecordComponentReadAccess = 23;
 
 	public int sourceStart = 0; // start position of the matching declaration
 	public int index; // used for sorting access methods in the class file
@@ -530,7 +531,7 @@ public class SyntheticMethodBinding extends MethodBinding {
 		this.selector = rcb.name;
 		this.recordComponentBinding = rcb;
 		this.targetReadField = rcb;
-		this.purpose = SyntheticMethodBinding.FieldReadAccess;
+		this.purpose = SyntheticMethodBinding.RecordComponentReadAccess;
 		this.thrownExceptions = Binding.NO_EXCEPTIONS;
 		this.index = nextSmbIndex();
 		this.sourceStart = rcb.sourceRecordComponent().sourceStart;
@@ -715,6 +716,14 @@ public class SyntheticMethodBinding extends MethodBinding {
 			default:
 				return super.hasNonNullDefaultForParameter(srcMethod);
 		}
+	}
+
+	//pre: null annotation analysis is enabled
+	@Override
+	public boolean hasNonNullDefaultForReturnType(AbstractMethodDeclaration srcMethod) {
+		if (this.purpose == RecordComponentReadAccess)
+			return hasNonNullDefaultForType(this.returnType, Binding.DefaultLocationRecordComponent, srcMethod, srcMethod == null ? -1 : srcMethod.declarationSourceStart);
+		return super.hasNonNullDefaultForReturnType(srcMethod);
 	}
 
 	public void markNonNull(LookupEnvironment environment) {

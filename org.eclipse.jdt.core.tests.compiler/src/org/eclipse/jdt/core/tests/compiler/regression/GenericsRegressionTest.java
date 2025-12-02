@@ -42,6 +42,7 @@ import java.io.File;
 import java.util.Map;
 import junit.framework.Test;
 import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.tests.compiler.regression.AbstractRegressionTest.JavacTestOptions.JavacHasABug;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 
@@ -5393,6 +5394,11 @@ public void testBug456459a() {
 		"	EnumSet<? extends T> set = EnumSet.allOf(enumType);\n" +
 		"	                                         ^^^^^^^^\n" +
 		"Type safety: The expression of type Class needs unchecked conversion to conform to Class<Enum<Enum<E>>>\n" +
+		"----------\n" +
+		"6. ERROR in EnumTest.java (at line 10)\n" +
+		"	return set.iterator().next();\n" +
+		"	       ^^^^^^^^^^^^^^^^^^^^^\n" +
+		"Type mismatch: cannot convert from capture#1-of ? extends T to T\n" +
 		"----------\n");
 }
 // simple conflict introduced by additional wildcard bound
@@ -6736,6 +6742,321 @@ public void testIssue3897() {
 			"Zork cannot be resolved to a type\n" +
 			"----------\n"
 		);
+}
+// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/2523
+// Compilation error on ecj but not javac due to usage of incorrect super interface
+public void testIssue2523() {
+        this.runConformTest(
+            new String[] {
+                "X.java",
+                """
+                public class X {
+                    public void test() {
+                        C<? extends D> c = null;
+                        optional(c, null);
+                    }
+
+                    private <I extends F, T extends E<I>> void optional(C<T> l, I i) {}
+
+                    public static interface C<T extends E<?>> {}
+                    public static class D implements E<F> {}
+                    public static interface E<I extends F> {}
+                    public static class F {}
+                }
+                """
+            }
+        );
+}
+// regression from issue 2523
+public void testGH4306() {
+	runConformTest(
+		new String[] {
+				"Demo.java",
+				"""
+				public class Demo {
+
+				public static void main(String[] args) throws Throwable {
+					run(Demo::close); // Minimal reproducer
+					run(() -> close()); // no error
+
+					// More complex cases closer to the original code
+					ThrowingRunnable<Exception> run = Demo::close; // no error
+					runAll(() -> close()); // no error
+					runAll(Demo::close); // error
+					runAll(Demo::close, () -> close()); // error on first
+					runAll(() -> close(), Demo::close); // error on second
+				}
+
+				@FunctionalInterface
+				interface ThrowingRunnable<E extends Throwable> {
+					void run() throws E;
+				}
+
+				static void close() throws Exception {
+				}
+
+				@SafeVarargs
+				static <E extends Throwable> void runAll(ThrowingRunnable<? extends E>... actions) throws E {
+				}
+
+				static <E extends Throwable> void run(ThrowingRunnable<? extends E> action) throws E {
+				}
+			}
+				"""
+		});
+}
+public void testGH4306b() {
+	runConformTest(new String[] {
+			"Demo.java",
+			"""
+			public class Demo {
+				public static void main(String[] args) {
+					A type = get(A::new);
+				}
+
+				private static <T extends A> T get(SupplierTest<? extends T> supplier) {
+					return null;
+				}
+
+				private static class A {}
+				private interface SupplierTest<T extends A> {
+					T create();
+				}
+			}
+			"""
+	});
+}
+public void testGH4214() {
+	runConformTest(new String[] {
+		"C.java",
+		"""
+		class C {
+			class A<T> {}
+			public class B<T extends B<? extends A<?>>> extends A<T> {
+				void foo() {
+					bar((T)this);
+				}
+			}
+			<T extends B<?>> void bar(T t) {}
+		}
+		"""
+	});
+}
+public void testGH4235() {
+	runConformTest(new String[] {
+			"repro/AssertJStubs.java",
+			"""
+			package repro;
+			import java.util.List;
+			public class AssertJStubs {
+				interface Descriptable<SELF> {}
+				interface ExtensionPoints<SELF extends ExtensionPoints<SELF, ACTUAL>, ACTUAL> {}
+
+				public interface Assert<SELF extends Assert<SELF, ACTUAL>, ACTUAL> extends Descriptable<SELF>, ExtensionPoints<SELF, ACTUAL> { }
+				public static abstract class AbstractAssert<SELF extends AbstractAssert<SELF, ACTUAL>, ACTUAL> implements Assert<SELF, ACTUAL> {
+					protected ACTUAL actual;
+					protected SELF myself;
+				}
+				interface AssertFactory<T, ASSERT extends Assert<?, ?>> {
+					  ASSERT createAssert(T actual);
+				}
+
+				public static class FactoryBasedNavigableListAssert<SELF extends FactoryBasedNavigableListAssert<SELF, ACTUAL, ELEMENT, ELEMENT_ASSERT>,
+				    											ACTUAL extends List<? extends ELEMENT>,
+				    											ELEMENT,
+				    											ELEMENT_ASSERT extends AbstractAssert<ELEMENT_ASSERT, ELEMENT>>
+					extends AbstractAssert<SELF, ACTUAL> {
+					public boolean isEmpty() { return true; }
+				}
+
+				public static class Assertions {
+					public static <ACTUAL extends List<? extends ELEMENT>, ELEMENT, ELEMENT_ASSERT extends AbstractAssert<ELEMENT_ASSERT, ELEMENT>>
+					FactoryBasedNavigableListAssert<?, ACTUAL, ELEMENT, ELEMENT_ASSERT> assertThat(List<? extends ELEMENT> actual,
+							AssertFactory<ELEMENT, ELEMENT_ASSERT> assertFactory) {
+						return null;
+					}
+				}
+			}
+			""",
+			"repro/SourceType.java",
+			"""
+			package repro;
+			import java.util.List;
+
+			public interface SourceType {
+				List<TargetType> getTargets();
+			}
+			""",
+			"repro/SourceTypeAssert.java",
+			"""
+			package repro;
+			import java.util.List;
+			import repro.AssertJStubs.*;
+
+			public class SourceTypeAssert extends AbstractAssert<SourceTypeAssert, SourceType> {
+				protected SourceTypeAssert(SourceType actual, Class<?> selfType) {
+				}
+				public final FactoryBasedNavigableListAssert<?, List<? extends TargetType>, TargetType, ? extends AbstractTargetTypeAssert<?>> targets() {
+					return Assertions.assertThat(actual.getTargets(), TargetTypeAssert::new);
+				}
+				public final SourceTypeAssert hasNoTargets() {
+					targets().isEmpty();
+					return myself;
+				}
+			}
+			""",
+			"repro/TargetType.java",
+			"""
+			package repro;
+			public interface TargetType { }
+			""",
+			"repro/AbstractTargetTypeAssert.java",
+			"""
+			package repro;
+			import repro.AssertJStubs.AbstractAssert;
+
+			public abstract class AbstractTargetTypeAssert<S extends AbstractTargetTypeAssert<S>> extends AbstractAssert<S, TargetType> {
+				protected AbstractTargetTypeAssert(TargetType actual, Class<?> selfType) {
+				}
+			}
+			""",
+			"repro/TargetTypeAssert.java",
+			"""
+			package repro;
+			public class TargetTypeAssert extends AbstractTargetTypeAssert<TargetTypeAssert> {
+				protected TargetTypeAssert(TargetType actual) {
+					super(actual, TargetTypeAssert.class);
+				}
+			}
+			"""
+		});
+}
+public void testGH4236() {
+	if (this.complianceLevel < ClassFileConstants.JDK16)
+		return; // uses records
+	runConformTest(new String[]{
+			"A.java",
+			"""
+			import java.io.Serializable;
+			public record A(DR<? extends TI<?>> effective) {
+			  A(DR<? extends TI<?>> effective, Object x) {
+			    this(effective);
+			  }
+			}
+
+			class DR<T extends Comparable<? super T> & Serializable> {
+			}
+
+			abstract class TI<M> implements Comparable<TI<M>>, Serializable {
+			  private static final long serialVersionUID = 1L;
+			}
+			"""
+		});
+}
+public void testGH4254() {
+	runConformTest(new String[] {
+			"WorkerPool.java",
+			"""
+			public abstract class WorkerPool<P extends WorkerPool<P, K, W>, K, W extends WorkerPool.Worker<K, P>> {
+
+				void deschedule(K key) { }
+
+				public static abstract class Worker<K, P extends WorkerPool<? extends P, K, ? extends Worker<K, P>>> {
+					private P workPool;
+
+					private K key;
+
+					protected void run() {
+						workPool.deschedule(key);
+					}
+				}
+			}
+			"""
+		}
+	);
+}
+
+public void testGH4314() {
+    runConformTest(new String[] {
+            "Test.java",
+            """
+            import java.util.function.Function;
+
+            public class Test {
+
+                public static void main(String[] args) {
+                    m(
+                            i -> new A<>(i),
+                            b -> b.intValue());
+                }
+
+                private static <T, R> void m(Function<Integer, A<T>> f1, Function<T, R> f2) {}
+                private static class A<T> {
+                    public A(T t) {}
+                }
+            }
+            """
+    });
+}
+public void testGH4314b() {
+	if (this.complianceLevel < ClassFileConstants.JDK22)
+		return; // uses unnamed lambda param
+	Runner runner = new Runner();
+	runner.testFiles = new String[] {
+			"Test.java",
+			"""
+			import java.util.function.Function;
+			public class Test {
+				public static void main(String[] args) {
+					C<B<?>> c = null;
+					m(
+							_ -> new A<>(c),
+							b -> b.intValue());
+				}
+				static <T, R> void m(Function<B<Number>, A<T>> f1, Function<T, R> f2) {}
+				static class A<U> {
+					public A(C<? extends C<U>> t) {}
+				}
+				record B<V extends Number>(V t) implements C<V> {
+
+				}
+				interface C<W> {
+					W t();
+				}
+			}
+			"""
+		};
+	runner.javacTestOptions = JavacHasABug.JavacBug8016196;
+	runner.runConformTest();
+}
+public void testGH4314c() {
+	if (this.complianceLevel < ClassFileConstants.JDK22)
+		return; // uses unnamed lambda param
+	runConformTest(new String[] {
+			"Test.java",
+			"""
+			import java.util.function.Function;
+			public class Test {
+				public static void main(String[] args) {
+					C<B<?>> c = null;
+					m(
+							_ -> new A<>(c),
+							b -> b.intValue());
+				}
+				static <T, R> void m(Function<B<Number>, A<T>> f1, Function<T, R> f2) {}
+				static class A<U> {
+					public A(C<? extends C<? extends U>> t) {}
+				}
+				record B<V extends Number>(V t) implements C<V> {
+
+				}
+				interface C<W> {
+					W t();
+				}
+			}
+			"""
+		},
+		"");
 }
 }
 

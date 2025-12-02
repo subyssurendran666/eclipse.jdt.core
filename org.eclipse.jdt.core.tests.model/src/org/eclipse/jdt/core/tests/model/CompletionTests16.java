@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2020, 2024 IBM and others.
+ * Copyright (c) 2020, 2025 IBM and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -14,6 +14,7 @@
 package org.eclipse.jdt.core.tests.model;
 
 import junit.framework.Test;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.JavaCore;
@@ -1181,4 +1182,218 @@ public class CompletionTests16 extends AbstractJavaModelCompletionTests {
 				requestor.getResults());
 
 	}
+
+	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4215
+	// Content Assist doesn't work for record type names in some contexts
+	public void testIssue4215() throws JavaModelException {
+		this.workingCopies = new ICompilationUnit[2];
+
+		this.workingCopies[1] = getWorkingCopy(
+				"/Completion/src/p/Point.java",
+				"""
+				package p;
+				public record Point(int x, int y) {
+					void foo() {
+						System.out.println(this.x);
+						System.out.println(x());
+					}
+				}
+
+				class X {
+					X x = new X();
+				}
+				"""
+				);
+		this.workingCopies[0] = getWorkingCopy(
+				"/Completion/src/X.java",
+				"""
+				public class X {
+					public static void main(String[] args) {
+						new Poi
+					}
+				}
+				"""
+				);
+		this.workingCopies[0].getJavaProject(); //assuming single project for all working copies
+		CompletionTestsRequestor2 requestor = new CompletionTestsRequestor2(true);
+		requestor.allowAllRequiredProposals();
+		String str = this.workingCopies[0].getSource();
+		String completeBehind = "new Poi";
+		int cursorLocation = str.lastIndexOf(completeBehind) + completeBehind.length();
+		this.workingCopies[0].codeComplete(cursorLocation, requestor, this.wcOwner, new NullProgressMonitor());
+		assertResults(
+				"Point[CONSTRUCTOR_INVOCATION]{(), Lp.Point;, (II)V, Point, (x, y), 52}",
+				requestor.getResults());
+
+	}
+
+	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4215
+	// Content Assist doesn't work for record type names in some contexts
+	public void testIssue4215_2() throws JavaModelException {
+		this.workingCopies = new ICompilationUnit[2];
+
+		this.workingCopies[1] = getWorkingCopy(
+				"/Completion/src/p/Point.java",
+				"""
+				package p;
+				public record Point(int x, int y) {
+					public Point {
+						x = 0;
+						y = 0;
+					}
+
+					void foo() {
+						System.out.println(this.x);
+						System.out.println(x());
+					}
+				}
+
+				class X {
+					X x = new X();
+				}
+				"""
+				);
+		this.workingCopies[0] = getWorkingCopy(
+				"/Completion/src/X.java",
+				"""
+				public class X {
+					public static void main(String[] args) {
+						new Poi
+					}
+				}
+				"""
+				);
+		this.workingCopies[0].getJavaProject(); //assuming single project for all working copies
+		CompletionTestsRequestor2 requestor = new CompletionTestsRequestor2(true);
+		requestor.allowAllRequiredProposals();
+		String str = this.workingCopies[0].getSource();
+		String completeBehind = "new Poi";
+		int cursorLocation = str.lastIndexOf(completeBehind) + completeBehind.length();
+		this.workingCopies[0].codeComplete(cursorLocation, requestor, this.wcOwner, new NullProgressMonitor());
+		assertResults(
+				"Point[CONSTRUCTOR_INVOCATION]{(), Lp.Point;, (II)V, Point, (x, y), 52}",
+				requestor.getResults());
+
+	}
+
+	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4215
+	// Content Assist doesn't work for record type names in some contexts
+	public void testIssue4215_3() throws JavaModelException {
+		this.workingCopies = new ICompilationUnit[2];
+
+		this.workingCopies[1] = getWorkingCopy(
+				"/Completion/src/p/Point.java",
+				"""
+				package p;
+				public record Point(int x, int y) {
+					public Point() {
+						this(0, 0);
+					}
+
+					void foo() {
+						System.out.println(this.x);
+						System.out.println(x());
+					}
+				}
+
+				class X {
+					X x = new X();
+				}
+				"""
+				);
+		this.workingCopies[0] = getWorkingCopy(
+				"/Completion/src/X.java",
+				"""
+				public class X {
+					public static void main(String[] args) {
+						new Poi
+					}
+				}
+				"""
+				);
+		this.workingCopies[0].getJavaProject(); //assuming single project for all working copies
+		CompletionTestsRequestor2 requestor = new CompletionTestsRequestor2(true);
+		requestor.allowAllRequiredProposals();
+		String str = this.workingCopies[0].getSource();
+		String completeBehind = "new Poi";
+		int cursorLocation = str.lastIndexOf(completeBehind) + completeBehind.length();
+		this.workingCopies[0].codeComplete(cursorLocation, requestor, this.wcOwner, new NullProgressMonitor());
+		assertResults(
+				"Point[CONSTRUCTOR_INVOCATION]{(), Lp.Point;, ()V, Point, null, 52}\n" +
+				"Point[CONSTRUCTOR_INVOCATION]{(), Lp.Point;, (II)V, Point, (x, y), 52}",
+				requestor.getResults());
+
+	}
+
+	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4215
+	// Content Assist doesn't work for record type names in some contexts
+	public void testIssue4215_4() throws JavaModelException {
+		this.workingCopies = new ICompilationUnit[2];
+
+		this.workingCopies[1] = getWorkingCopy(
+				"/Completion/src/p/Point.java",
+				"""
+				package p;
+				public record Point(int x, int y) {
+					public Point() {
+						this(0, 0);
+					}
+					public Point (int x, int y) {
+						this.x = x;
+						this.y = y;
+					}
+					void foo() {
+						System.out.println(this.x);
+						System.out.println(x());
+					}
+				}
+
+				class X {
+					X x = new X();
+				}
+				"""
+				);
+		this.workingCopies[0] = getWorkingCopy(
+				"/Completion/src/X.java",
+				"""
+				public class X {
+					public static void main(String[] args) {
+						new Poi
+					}
+				}
+				"""
+				);
+		this.workingCopies[0].getJavaProject(); //assuming single project for all working copies
+		CompletionTestsRequestor2 requestor = new CompletionTestsRequestor2(true);
+		requestor.allowAllRequiredProposals();
+		String str = this.workingCopies[0].getSource();
+		String completeBehind = "new Poi";
+		int cursorLocation = str.lastIndexOf(completeBehind) + completeBehind.length();
+		this.workingCopies[0].codeComplete(cursorLocation, requestor, this.wcOwner, new NullProgressMonitor());
+		assertResults(
+				"Point[CONSTRUCTOR_INVOCATION]{(), Lp.Point;, ()V, Point, null, 52}\n" +
+				"Point[CONSTRUCTOR_INVOCATION]{(), Lp.Point;, (II)V, Point, (x, y), 52}\n" +
+				"Point[CONSTRUCTOR_INVOCATION]{(), Lp.Point;, (II)V, Point, (x, y), 52}", // duplicated: see https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4222
+				requestor.getResults());
+
+	}
+
+	public void test_CompletionOnRecordConstructor_issue4419() throws JavaModelException {
+		this.workingCopies = new ICompilationUnit[1];
+		this.workingCopies[0] = getWorkingCopy(
+				"/Completion/src/Person.java",
+				"public record Person(pack2.P) {\n"
+						+ "    public Per\n"
+						+ "}\n");
+		CompletionTestsRequestor2 requestor = new CompletionTestsRequestor2(true, true, true, false);
+		String str = this.workingCopies[0].getSource();
+		String completeBehind = "public Per";
+		int cursorLocation = str.lastIndexOf(completeBehind) + completeBehind.length();
+		this.workingCopies[0].codeComplete(cursorLocation, requestor, this.wcOwner);
+		assertResults(
+				"Person[TYPE_REF]{Person, , LPerson;, null, null, null, null, [43, 46], "
+						+ (R_DEFAULT + R_RESOLVED + R_INTERESTING + R_CASE + R_UNQUALIFIED + R_NON_RESTRICTED) + "}",
+				requestor.getResults());
+	}
+
 }

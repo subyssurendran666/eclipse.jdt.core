@@ -243,21 +243,6 @@ public List<TypeBinding> collectMissingTypes(List<TypeBinding> missingTypes) {
 	return missingTypes;
 }
 
-/**
- * Collect the substitutes into a map for certain type variables inside the receiver type
- * e.g.<pre>{@code
- * Collection<T>.findSubstitute(T, Collection<List<X>>):   T --> List<X>
- *
- * Constraints:
- *   A << F   corresponds to:   F.collectSubstitutes(..., A, ..., CONSTRAINT_EXTENDS (1))
- *   A = F    corresponds to:   F.collectSubstitutes(..., A, ..., CONSTRAINT_EQUAL (0))
- *   A >> F   corresponds to:   F.collectSubstitutes(..., A, ..., CONSTRAINT_SUPER (2))
- * }</pre>
- */
-public void collectSubstitutes(Scope scope, TypeBinding actualType, InferenceContext inferenceContext, int constraint) {
-	// no substitute by default
-}
-
 /** Virtual copy constructor: a copy is made of the receiver's entire instance state and then suitably
     parameterized by the arguments to the clone operation as seen fit by each type. Parameters may not
     make sense for every type in the hierarchy, in which case they are silently ignored. A type may
@@ -287,6 +272,10 @@ public int dimensions() {
 
 public int depth() {
 	return 0;
+}
+
+public int typeArgumentDepth() {
+	return 1;
 }
 
 /* Answer the receiver's enclosing method ... null if the receiver is not a local type.
@@ -1553,7 +1542,7 @@ public boolean needsUncheckedConversion(TypeBinding targetType) {
 	if (TypeBinding.equalsEquals(this, targetType))
 		return false;
 	targetType = targetType.leafComponentType();
-	if (!(targetType instanceof ReferenceBinding))
+	if (!(targetType instanceof ParameterizedTypeBinding))
 		return false;
 
 	TypeBinding currentType = leafComponentType();

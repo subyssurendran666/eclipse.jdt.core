@@ -47,10 +47,8 @@ public class ParameterizedGenericMethodBinding extends ParameterizedMethodBindin
 
     public TypeBinding[] typeArguments;
     protected LookupEnvironment environment;
-    public boolean inferredReturnType;
     public boolean wasInferred; // only set to true for instances resulting from method invocation inferrence
     public boolean isRaw; // set to true for method behaving as raw for substitution purpose
-    private MethodBinding tiebreakMethod;
 	public boolean inferredWithUncheckedConversion;
 	public TypeBinding targetType; // used to distinguish different PGMB created for different target types (needed because inference contexts are remembered per PGMB)
 
@@ -484,7 +482,7 @@ public class ParameterizedGenericMethodBinding extends ParameterizedMethodBindin
 	 */
 	@Override
 	public boolean hasSubstitutedReturnType() {
-		if (this.inferredReturnType)
+		if (this.wasInferred)
 			return this.originalMethod.hasSubstitutedReturnType();
 		return super.hasSubstitutedReturnType();
 	}
@@ -558,15 +556,6 @@ public class ParameterizedGenericMethodBinding extends ParameterizedMethodBindin
         	return originalVariable.combineTypeAnnotations(substitute);
         }
 	    return originalVariable;
-	}
-	/**
-	 * @see org.eclipse.jdt.internal.compiler.lookup.MethodBinding#tiebreakMethod()
-	 */
-	@Override
-	public MethodBinding tiebreakMethod() {
-		if (this.tiebreakMethod == null)
-			this.tiebreakMethod = this.originalMethod.asRawMethod(this.environment);
-		return this.tiebreakMethod;
 	}
 
 	@Override

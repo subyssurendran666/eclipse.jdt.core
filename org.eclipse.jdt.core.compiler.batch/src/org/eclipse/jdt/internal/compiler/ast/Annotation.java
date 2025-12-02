@@ -965,7 +965,19 @@ public abstract class Annotation extends Expression {
 		int defaultNullness = (int)(tagBits & Binding.NullnessDefaultMASK);
 		tagBits &= ~Binding.NullnessDefaultMASK;
 		CompilerOptions compilerOptions = scope.compilerOptions();
-		if ((tagBits & TagBits.AnnotationDeprecated) != 0 && compilerOptions.complianceLevel >= ClassFileConstants.JDK9 && !compilerOptions.storeAnnotations) {
+		/* In cases like this, the this.recipient is null
+		 * public @interface MyAnnot {
+		 *   Deprecated annot() default @Deprecated();
+		 * }
+		 * and difficult to distinguish between the above and
+		 * @Deprecated
+		 * Deprecated annot();
+		 *
+		 */
+		if (this.recipient != null
+				&& (tagBits & TagBits.AnnotationDeprecated) != 0
+				&& compilerOptions.complianceLevel >= ClassFileConstants.JDK9
+				&& !compilerOptions.storeAnnotations) {
 			this.recipient.setAnnotations(new AnnotationBinding[] {this.compilerAnnotation}, true); // force storing enhanced deprecation
 		}
 
@@ -1235,7 +1247,9 @@ public abstract class Annotation extends Expression {
 					if ((metaTagBits & TagBits.AnnotationForParameter) != 0) {
 						return AnnotationTargetAllowed.YES;
 					} else if ((metaTagBits & TagBits.AnnotationForTypeUse) != 0) {
-						if (isTypeUseCompatible(localVariableBinding.declaration.type, scope)) {
+						if (localVariableBinding.declaration.isVarTyped(scope)) {
+							return AnnotationTargetAllowed.NO;
+						} else if (isTypeUseCompatible(localVariableBinding.declaration.type, scope)) {
 							return AnnotationTargetAllowed.YES;
 						} else {
 							return AnnotationTargetAllowed.TYPE_ANNOTATION_ON_QUALIFIED_NAME;
@@ -1244,7 +1258,7 @@ public abstract class Annotation extends Expression {
 				} else if ((annotationType.tagBits & TagBits.AnnotationForLocalVariable) != 0) {
 					return AnnotationTargetAllowed.YES;
 				} else if ((metaTagBits & TagBits.AnnotationForTypeUse) != 0) {
-					if (localVariableBinding.declaration.isTypeNameVar(scope)) {
+					if (localVariableBinding.declaration.isVarTyped(scope)) {
 						return AnnotationTargetAllowed.NO;
 					} else if (isTypeUseCompatible(localVariableBinding.declaration.type, scope)) {
 						return AnnotationTargetAllowed.YES;
@@ -1363,6 +1377,8 @@ public abstract class Annotation extends Expression {
 
 		nextAnnotation:
 			for (Annotation annotation : annotations) {
+				if (annotation.resolvedType == null) // barked elsewhere or still cooking and we come here due to re-entrancy
+					continue;
 				long metaTagBits = annotation.resolvedType.getAnnotationTagBits();
 				if ((metaTagBits & TagBits.AnnotationForTypeUse) != 0 && (metaTagBits & TagBits.AnnotationForDeclarationMASK) == 0) {
 					ReferenceBinding currentType = (ReferenceBinding) resolvedType;

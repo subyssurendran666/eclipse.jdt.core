@@ -28,7 +28,7 @@ public class RecordPatternTest extends AbstractRegressionTest9 {
 	static {
 //		TESTS_NUMBERS = new int [] { 40 };
 //		TESTS_RANGE = new int[] { 1, -1 };
-//		TESTS_NAMES = new String[] { "testRecPatExhaust018" };
+//		TESTS_NAMES = new String[] { "testRecordTypeInfer_4643" };
 	}
 	private String extraLibPath;
 	public static Class<?> testClass() {
@@ -4969,7 +4969,125 @@ public class RecordPatternTest extends AbstractRegressionTest9 {
 			},
 			"java.lang.IllegalArgumentException: myRecord contained null value\n" +
 			"java.lang.IllegalArgumentException: myRecord contained blank value '  '\n" +
-			"java.lang.IllegalArgumentException: myRecord was null"
-);
+			"java.lang.IllegalArgumentException: myRecord was null");
 	}
+
+	// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4163
+	// [LVTI/var] ECJ accepts illegal array dimensions on type pattern declarations with var type
+	public void testIssue4163() {
+		runNegativeTest(new String[] {
+				"X.java",
+				"""
+				record R (String s) {
+
+				}
+
+				public class X  {
+					public static void main(String[] args) {
+						Object o = new R("Hello");
+						if (o instanceof R(var [][][] s)) {  // you can use any number of [] pairs actually!
+							System.out.println("R");
+						}
+					}
+				}
+				"""
+			},
+			"----------\n" +
+			"1. ERROR in X.java (at line 8)\n" +
+			"	if (o instanceof R(var [][][] s)) {  // you can use any number of [] pairs actually!\n" +
+			"	                   ^^^^^^^^^^\n" +
+			"'var' is not allowed as an element type of an array\n" +
+			"----------\n");
+	}
+
+	public void testGH4002() {
+		runConformTest(new String[] {
+				"Example.java",
+				"""
+				import java.util.List;
+
+				public class Example {
+
+				    private static boolean matches(ComponentType<?> type, ComponentType.RegularComponentType<?> eventType) {
+				        return switch (type) {
+				            case ComponentType.RegularComponentType<?> regular -> switch (regular) {
+				                case ComponentType.ClassType(var clazz) -> switch (eventType) {
+				                    case ComponentType.ClassType(var eventClazz) -> clazz == eventClazz;
+				                };
+				            };
+				            /* Workaround:
+				            case ComponentType.Wildcard<?> wildcard -> switch (eventType) {
+				                case ComponentType.ClassType(var eventClazz) -> wildcard.bound().isAssignableFrom(eventClazz);
+				            };
+				            /**/
+				            case ComponentType.Wildcard(var bound) -> switch (eventType) {
+				                case ComponentType.ClassType(var eventClazz) -> bound.isAssignableFrom(eventClazz);
+				            };
+				            /**/
+				            default -> false;
+				        };
+				    }
+
+				    sealed interface ComponentType<T> {
+
+				        sealed interface RegularComponentType<T> extends ComponentType<T> {
+				        }
+
+				        record ClassType<T>(Class<T> clazz) implements RegularComponentType<T> {
+				        }
+
+				        // "implements ComponentType<T>" works, javac (JDK 21 & JDK 24) accepts both
+				        record Wildcard<T>(Class<T> bound) implements ComponentType<List<? extends T>> {
+				        }
+
+				    }
+
+				}
+				"""
+		});
+	}
+	public void testRecordTypeInfer_4643_001() {
+		runConformTest(new String[] { "X.java", """
+			public class X {
+
+				private static void foo() {
+					record Box<T>(T t) {}
+
+					Box<Box<String>> bo = new Box<>(new Box<>("str"));
+					if (bo instanceof Box(Box(var sString))) {
+						System.out.println(sString.length());
+					}
+				}
+
+				public static void main(String[] args) {
+					foo();
+				}
+			}
+			""" }, "3");
+	}
+	public void testRecordTypeInfer_4643_002() {
+		runNegativeTest(new String[] {
+				"X.java",
+				"""
+					public class X {
+
+						private static void foo() {
+							  record Box<T>(T t) {}
+							  Box<Box<Integer>> bo = new Box<>(new Box<>(1));
+							  if (bo instanceof Box(Box(String sString))) {}
+							}
+						public static void main(String[] args) {
+							foo();
+						}
+					}
+				"""
+			},
+			"----------\n" +
+			"1. ERROR in X.java (at line 6)\n" +
+			"	if (bo instanceof Box(Box(String sString))) {}\n" +
+			"	                          ^^^^^^^^^^^^^^\n" +
+			"Record component with type Integer is not compatible with type String\n" +
+			"----------\n");
+	}
+
 }

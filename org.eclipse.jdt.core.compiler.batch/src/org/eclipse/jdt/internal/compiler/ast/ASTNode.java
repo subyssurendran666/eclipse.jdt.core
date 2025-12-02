@@ -62,7 +62,7 @@ import org.eclipse.jdt.internal.compiler.env.IBinaryAnnotation;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 @SuppressWarnings({"rawtypes", "unchecked"})
-public abstract class ASTNode implements TypeConstants, TypeIds {
+public abstract class ASTNode implements Location, TypeConstants, TypeIds {
 
 	public int sourceStart, sourceEnd;
 
@@ -159,6 +159,7 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 	public static final int IsForeachElementVariable = Bit5;
 	public static final int ShadowsOuterLocal = Bit22;
 	public static final int IsAdditionalDeclarator = Bit23;
+	public static final int IsPatternVariable = Bit24;
 
 	// for name refs or local decls
 	public static final int FirstAssignmentToLocal = Bit4;
@@ -200,13 +201,16 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 	public static final int HasLocalType = Bit2; // cannot conflict with AddAssertionMASK
 	public static final int HasBeenResolved = Bit5; // field decl only (to handle forward references)
 
+	// for lambda expressions
+	public static final int ArgumentsTypeElided = Bit2; // A lambda with var typed arguments is considered to be type elided, but the Arguments themselves are considered var typed.
+
 	// for expression
 	public static final int ParenthesizedSHIFT = 21; // Bit22 -> Bit29
 	public static final int ParenthesizedMASK = Bit22|Bit23|Bit24|Bit25|Bit26|Bit27|Bit28|Bit29; // 8 bits for parenthesis count value (max. 255)
 	public static final int IgnoreNoEffectAssignCheck = Bit30;
 
 	// for references on lhs of assignment
-	public static final int IsStrictlyAssigned = Bit14; // set only for true assignments, as opposed to compound ones. Used also for JEP 482 to allow assignment, but not read
+	public static final int IsStrictlyAssigned = Bit14; // set only for true assignments, as opposed to compound ones. Used also for JEP 513 to allow assignment, but not read
 	public static final int IsCompoundAssigned = Bit17; // set only for compound assignments, as opposed to other ones
 
 	// for explicit constructor call
@@ -488,13 +492,16 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 			}
 		}
 
-		if (!field.isViewedAsDeprecated()) return false;
+		if (!field.isDeprecated()) return false;
 
-		// inside same unit - no report
-		if (scope.isDefinedInSameUnit(field.declaringClass)) return false;
+		// inside same outermost enclosing type - no report
+		if (scope.isDefinedInSameEnclosingType(field.declaringClass.outermostEnclosingType())) return false;
 
-		// if context is deprecated, may avoid reporting
-		if (!scope.compilerOptions().reportDeprecationInsideDeprecatedCode && scope.isInsideDeprecatedCode()) return false;
+		// if context is deprecated, may avoid reporting ordinary deprecation
+		if ((field.tagBits & TagBits.AnnotationTerminallyDeprecated) == 0
+				&& !scope.compilerOptions().reportDeprecationInsideDeprecatedCode
+				&& scope.isInsideDeprecatedCode())
+			return false;
 		return true;
 	}
 
@@ -538,19 +545,16 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 			}
 		}
 
-		if (!method.isViewedAsDeprecated()) return false;
+		if (!method.isDeprecated()) return false;
 
-		// inside same unit - no report
-		if (scope.isDefinedInSameUnit(method.declaringClass)) return false;
+		// inside same outermost enclosing type - no report
+		if (scope.isDefinedInSameEnclosingType(method.declaringClass.outermostEnclosingType())) return false;
 
-		// non explicit use and non explicitly deprecated - no report
-		if (!isExplicitUse &&
-				(method.modifiers & ClassFileConstants.AccDeprecated) == 0) {
+		// if context is deprecated, may avoid reporting ordinary deprecation
+		if ((method.tagBits & TagBits.AnnotationTerminallyDeprecated) == 0
+				&& !scope.compilerOptions().reportDeprecationInsideDeprecatedCode
+				&& scope.isInsideDeprecatedCode())
 			return false;
-		}
-
-		// if context is deprecated, may avoid reporting
-		if (!scope.compilerOptions().reportDeprecationInsideDeprecatedCode && scope.isInsideDeprecatedCode()) return false;
 		return true;
 	}
 
@@ -611,13 +615,16 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 		// force annotations resolution before deciding whether the type may be deprecated
 		refType.initializeDeprecatedAnnotationTagBits();
 
-		if (!refType.isViewedAsDeprecated()) return false;
+		if (!refType.isDeprecated()) return false;
 
-		// inside same unit - no report
-		if (scope.isDefinedInSameUnit(refType)) return false;
+		// inside same outermost enclosing type - no report
+		if (scope.isDefinedInSameEnclosingType(refType.outermostEnclosingType())) return false;
 
-		// if context is deprecated, may avoid reporting
-		if (!scope.compilerOptions().reportDeprecationInsideDeprecatedCode && scope.isInsideDeprecatedCode()) return false;
+		// if context is deprecated, may avoid reporting ordinary deprecation
+		if ((type.tagBits & TagBits.AnnotationTerminallyDeprecated) == 0
+				&& !scope.compilerOptions().reportDeprecationInsideDeprecatedCode
+				&& scope.isInsideDeprecatedCode())
+			return false;
 		return true;
 	}
 
@@ -806,7 +813,7 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 				case Binding.FIELD :
 				case Binding.RECORD_COMPONENT :
 				case Binding.LOCAL :
-					if ((recipient.extendedTagBits & ExtendedTagBits.AnnotationResolved) != 0) return annotations;
+					if (ExtendedTagBits.areAllAnnotationsResolved(recipient.extendedTagBits)) return annotations;
 					recipient.extendedTagBits |= ExtendedTagBits.AllAnnotationsResolved;
 					if (length > 0) {
 						annotations = new AnnotationBinding[length];
@@ -845,7 +852,7 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 								annotations[j] = annot.getCompilerAnnotation();
 							}
 						}
-						break;
+						return annotations;
 					case Binding.LOCAL :
 						LocalVariableBinding local = (LocalVariableBinding) recipient;
 						// Note for JDK>=14, this could be LVB or RCB, hence typecasting to VB
@@ -886,9 +893,10 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 						// copy the se8 annotations.
 						if (annotationRecipient instanceof RecordComponentBinding && copySE8AnnotationsToType)
 							copySE8AnnotationsToType(scope, recipient, sourceAnnotations, false);
-						break;
+						return annotations;
+					default:
+						annotations[i] = annotation.compilerAnnotation;
 				}
-				return annotations;
 			} else {
 				annotation.recipient = recipient;
 				annotation.resolveType(scope);
@@ -1333,6 +1341,8 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 										break;
 									}
 								}
+								annotations[i].recipient = recipient;
+								annotations[i].resolveType(scope); // allow downstream access to since & forRemoval
 							}
 							recipient.tagBits |= deprecationTagBits;
 						}
@@ -1350,7 +1360,7 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 			if (annotations != null) {
 				int length;
 				if ((length = annotations.length) >= 0) {
-					if ((recipient.tagBits & ExtendedTagBits.NullDefaultAnnotationResolved) != 0) return;
+					if ((recipient.extendedTagBits & ExtendedTagBits.NullDefaultAnnotationResolved) != 0) return;
 					for (int i = 0; i < length; i++) {
 						TypeReference annotationTypeRef = annotations[i].type;
 						// only resolve type name if 'NonNullByDefault' last token (or corresponding configured annotation name)
@@ -1375,11 +1385,12 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 	public void acceptPotentiallyCompatibleMethods(MethodBinding [] methods) {
 		// Discard. Interested subclasses should override and grab these goodies.
 	}
-	// --- "default methods" for InvocationSite
 
+	@Override
 	public int sourceStart() {
 		return this.sourceStart;
 	}
+	@Override
 	public int sourceEnd() {
 		return this.sourceEnd;
 	}

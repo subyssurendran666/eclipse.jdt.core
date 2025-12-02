@@ -203,6 +203,9 @@ public static int getIrritant(int problemID) {
 		case IProblem.UsingTerminallyDeprecatedSinceVersionModule :
 			return CompilerOptions.UsingTerminallyDeprecatedAPI;
 
+		case IProblem.MemberOfDeprecatedTypeNotDeprecated :
+			return CompilerOptions.MemberOfDeprecatedType;
+
 		case IProblem.LocalVariableIsNeverUsed :
 			return CompilerOptions.UnusedLocalVariable;
 
@@ -396,6 +399,7 @@ public static int getIrritant(int problemID) {
 		case IProblem.ContradictoryNullAnnotationsInferred:
 		case IProblem.ContradictoryNullAnnotationsInferredFunctionType:
 		case IProblem.IllegalParameterNullityRedefinition:
+		case IProblem.RecordComponentIncompatibleNullnessVsInheritedAccessor:
 			return CompilerOptions.NullSpecViolation;
 
 		case IProblem.NullNotCompatibleToFreeTypeVariable:
@@ -442,6 +446,7 @@ public static int getIrritant(int problemID) {
 			return CompilerOptions.AutoBoxing;
 
 		case IProblem.MissingEnumConstantCase :
+		case IProblem.SwitchExpressionMissingEnumConstantCaseDespiteDefault :
 		case IProblem.MissingEnumConstantCaseDespiteDefault :	// this one is further protected by CompilerOptions.reportMissingEnumCaseDespiteDefault
 			return CompilerOptions.MissingEnumConstantCase;
 
@@ -703,6 +708,7 @@ public static int getProblemCategory(int severity, int problemID) {
 			case CompilerOptions.UnlikelyEqualsArgumentType:
 			case CompilerOptions.APILeak:
 			case CompilerOptions.UnstableAutoModuleName:
+			case CompilerOptions.MemberOfDeprecatedType:
 				return CategorizedProblem.CAT_POTENTIAL_PROGRAMMING_PROBLEM;
 
 			case CompilerOptions.OverriddenPackageDefaultMethod :
@@ -1915,7 +1921,7 @@ public void deprecatedType(TypeBinding type, ASTNode location) {
 // a deprecated type in a qualified reference (see bug 292510)
 public void deprecatedType(TypeBinding type, ASTNode location, int index) {
 	if (location == null) return; // 1G828DN - no type ref for synthetic arguments
-	final TypeBinding leafType = type.leafComponentType();
+	final ReferenceBinding leafType = (ReferenceBinding) type.leafComponentType();
 	if (!leafType.isReadyForAnnotations() && scheduleProblemForContext(() -> deprecatedType(type, location, index)))
 		return;
 	int sourceStart = -1;
@@ -1925,7 +1931,7 @@ public void deprecatedType(TypeBinding type, ASTNode location, int index) {
 			sourceStart = (int) (ref.sourcePositions[index] >> 32);
 		}
 	}
-	String sinceValue = deprecatedSinceValue(() -> leafType.getAnnotations());
+	String sinceValue = deprecatedSinceValue(() -> leafType.getAnnotations(ExtendedTagBits.DeprecatedAnnotationResolved));
 	if (sinceValue != null) {
 		this.handle(
 			((leafType.tagBits & TagBits.AnnotationTerminallyDeprecated) == 0) ? IProblem.UsingDeprecatedSinceVersionType : IProblem.UsingTerminallyDeprecatedSinceVersionType,
@@ -1981,6 +1987,13 @@ String deprecatedSinceValue(Supplier<AnnotationBinding[]> annotations) {
 		}
 	}
 	return null;
+}
+public void memberOfDeprecatedTypeNotDeprecated(ASTNode member, ReferenceBinding enclosingType) {
+	handle(IProblem.MemberOfDeprecatedTypeNotDeprecated,
+			new String[] { String.valueOf(enclosingType.readableName()) },
+			new String[] { String.valueOf(enclosingType.shortReadableName()) },
+			member.sourceStart,
+			member.sourceEnd);
 }
 public void disallowedTargetForAnnotation(Annotation annotation) {
 	this.handle(
@@ -2118,14 +2131,14 @@ public void duplicateInheritedMethods(SourceTypeBinding type, MethodBinding inhe
 		type.sourceStart(),
 		type.sourceEnd());
 }
-public void duplicateInitializationOfBlankFinalField(FieldBinding field, Reference reference) {
+public void duplicateInitializationOfBlankFinalField(FieldBinding field, ASTNode location) {
 	String[] arguments = new String[]{ new String(field.readableName())};
 	this.handle(
 		IProblem.DuplicateBlankFinalFieldInitialization,
 		arguments,
 		arguments,
-		nodeSourceStart(field, reference),
-		nodeSourceEnd(field, reference));
+		nodeSourceStart(field, location),
+		nodeSourceEnd(field, location));
 }
 public void duplicateInitializationOfFinalLocal(LocalVariableBinding local, ASTNode location) {
 	int problemId = local.isPatternVariable() ? IProblem.PatternVariableRedefined : IProblem.DuplicateFinalLocalInitialization;
@@ -4971,7 +4984,7 @@ public void discouragedValueBasedTypeToSynchronize(Expression expression, TypeBi
 		expression.sourceEnd);
 }
 public void isClassPathCorrect(char[][] wellKnownTypeName, CompilationUnitDeclaration compUnitDecl,
-					Object location, boolean implicitAnnotationUse, ReferenceBinding referencingType)
+					Location location, boolean implicitAnnotationUse, ReferenceBinding referencingType)
 {
 	// ProblemReporter is not designed to be reentrant. Just in case, we discovered a build path problem while we are already
 	// in the midst of reporting some other problem, save and restore reference context thereby mimicking a stack.
@@ -4981,15 +4994,8 @@ public void isClassPathCorrect(char[][] wellKnownTypeName, CompilationUnitDeclar
 	String[] arguments = new String[] {CharOperation.toString(wellKnownTypeName)};
 	int start = 0, end = 0;
 	if (location != null) {
-		if (location instanceof InvocationSite) {
-			InvocationSite site = (InvocationSite) location;
-			start = site.sourceStart();
-			end = site.sourceEnd();
-		} else if (location instanceof ASTNode) {
-			ASTNode node = (ASTNode) location;
-			start = node.sourceStart();
-			end = node.sourceEnd();
-		}
+		start = location.sourceStart();
+		end = location.sourceEnd();
 	}
 	try {
 		int pId = IProblem.IsClassPathCorrect;
@@ -6624,7 +6630,7 @@ public void missingEnumConstantCase(SwitchExpression switchExpression, FieldBind
 }
 private void missingSwitchExpressionEnumConstantCase(CaseStatement defaultCase, FieldBinding enumConstant, ASTNode expression) {
 	this.handle(
-			IProblem.SwitchExpressionsYieldMissingEnumConstantCase,
+			defaultCase == null ? IProblem.SwitchExpressionsYieldMissingEnumConstantCase : IProblem.SwitchExpressionMissingEnumConstantCaseDespiteDefault,
 			new String[] {new String(enumConstant.declaringClass.readableName()), new String(enumConstant.name) },
 			new String[] {new String(enumConstant.declaringClass.shortReadableName()), new String(enumConstant.name) },
 			expression.sourceStart,
@@ -9813,7 +9819,7 @@ public void varLocalMultipleDeclarators(AbstractVariableDeclaration varDecl) {
 		varDecl.sourceStart,
 		varDecl.sourceEnd);
 }
-public void varLocalCannotBeArray(AbstractVariableDeclaration varDecl) {
+public void varLocalCannotBeArray(ASTNode varDecl) {
 	this.handle(
 		IProblem.VarLocalCannotBeArray,
 		NoArgument,
@@ -9821,13 +9827,13 @@ public void varLocalCannotBeArray(AbstractVariableDeclaration varDecl) {
 		varDecl.sourceStart,
 		varDecl.sourceEnd);
 }
-public void varLocalReferencesItself(AbstractVariableDeclaration varDecl) {
+public void varLocalReferencesItself(SingleNameReference reference) {
 	this.handle(
 		IProblem.VarLocalReferencesItself,
 		NoArgument,
 		NoArgument,
-		varDecl.sourceStart,
-		varDecl.sourceEnd);
+		reference.sourceStart,
+		reference.sourceEnd);
 }
 public void varLocalWithoutInitizalier(AbstractVariableDeclaration varDecl) {
 	this.handle(
@@ -9856,22 +9862,6 @@ public void varLocalInitializedToVoid(AbstractVariableDeclaration varDecl) {
 public void varLocalCannotBeArrayInitalizers(AbstractVariableDeclaration varDecl) {
 	this.handle(
 		IProblem.VarLocalCannotBeArrayInitalizers,
-		NoArgument,
-		NoArgument,
-		varDecl.sourceStart,
-		varDecl.sourceEnd);
-}
-public void varLocalCannotBeLambda(AbstractVariableDeclaration varDecl) {
-	this.handle(
-		IProblem.VarLocalCannotBeLambda,
-		NoArgument,
-		NoArgument,
-		varDecl.sourceStart,
-		varDecl.sourceEnd);
-}
-public void varLocalCannotBeMethodReference(AbstractVariableDeclaration varDecl) {
-	this.handle(
-		IProblem.VarLocalCannotBeMethodReference,
 		NoArgument,
 		NoArgument,
 		varDecl.sourceStart,
@@ -10551,6 +10541,10 @@ public void expressionPotentialNullReference(ASTNode location) {
 }
 
 public void cannotImplementIncompatibleNullness(ReferenceContext context, MethodBinding currentMethod, MethodBinding inheritedMethod, boolean showReturn) {
+	if (currentMethod instanceof SyntheticMethodBinding synth && synth.purpose == SyntheticMethodBinding.RecordComponentReadAccess) {
+		recordComponentOverrideIncompatibleNullness(synth.sourceRecordComponent(), inheritedMethod, currentMethod.declaringClass);
+		return;
+	}
 	int sourceStart = 0, sourceEnd = 0;
 	if (context instanceof TypeDeclaration) {
 		TypeDeclaration type = (TypeDeclaration) context;
@@ -10586,6 +10580,27 @@ public void cannotImplementIncompatibleNullness(ReferenceContext context, Method
 			messageArguments,
 			sourceStart,
 			sourceEnd);
+}
+public void recordComponentOverrideIncompatibleNullness(AbstractVariableDeclaration component, MethodBinding inheritedMethod, ReferenceBinding declaringClass) {
+	Expression type = component.type;
+	if (type.resolvedType == null || inheritedMethod.returnType == null)
+		return;
+	this.handle(
+		IProblem.RecordComponentIncompatibleNullnessVsInheritedAccessor,
+		new String[] {
+				String.valueOf(type.resolvedType.nullAnnotatedReadableName(this.options, false)),
+				String.valueOf(component.name),
+				String.valueOf(inheritedMethod.returnType.nullAnnotatedReadableName(this.options, false)),
+				String.valueOf(inheritedMethod.readableName()),
+				String.valueOf(declaringClass.readableName()) },
+		new String[] {
+				String.valueOf(type.resolvedType.nullAnnotatedReadableName(this.options, true)),
+				String.valueOf(component.name),
+				String.valueOf(inheritedMethod.returnType.nullAnnotatedReadableName(this.options, true)),
+				String.valueOf(inheritedMethod.shortReadableName()),
+				String.valueOf(declaringClass.shortReadableName()) },
+		type.sourceStart,
+		type.sourceEnd);
 }
 
 public void nullAnnotationIsRedundant(AbstractMethodDeclaration sourceMethod, int i) {
@@ -11471,17 +11486,12 @@ public void invalidServiceRef(int problem, TypeReference type) {
 		NoArgument, new String[] { CharOperation.charToString(type.resolvedType.readableName()) },
 		type.sourceStart, type.sourceEnd);
 }
-public void modifierRequiresJavaBase(RequiresStatement stat, JavaFeature moduleImports) {
-	if (moduleImports != null) {
-		// don't use validateJavaFeatureSupport() as we want to give a more specific message if not enabled
-		if (moduleImports.isSupported(this.options)) {
-			previewFeatureUsed(stat.sourceStart, stat.sourceEnd);
-			return;
-		}
-		if (moduleImports.matchesCompliance(this.options)) {
-			this.handle(IProblem.ModifierOnRequiresJavaBasePreview, NoArgument, NoArgument, stat.modifiersSourceStart, stat.sourceEnd);
-			return;
-		}
+public void modifierRequiresJavaBase(RequiresStatement stat, JavaFeature moduleImportsFeature) {
+	// don't use validateJavaFeatureSupport() as we want to give a more specific message if not enabled
+	if (moduleImportsFeature != null) {
+		if (!moduleImportsFeature.isSupported(this.options))
+			this.handle(IProblem.ModifierTransitiveOnRequiresJavaBaseBelow25, NoArgument, NoArgument, stat.modifiersSourceStart, stat.sourceEnd);
+		return;
 	}
 	this.handle(IProblem.ModifierOnRequiresJavaBase, NoArgument, NoArgument, stat.modifiersSourceStart, stat.sourceEnd);
 }
@@ -11923,7 +11933,7 @@ public void illegalExplicitAssignmentInCompactConstructor(FieldBinding field, Fi
 		fieldRef.sourceStart,
 		fieldRef.sourceEnd);
 }
-public void missingExplicitConstructorCallInNonCanonicalConstructor(ASTNode location) {
+public void missingThisCallInNonCanonicalConstructor(ASTNode location) {
 	this.handle(
 		IProblem.RecordMissingExplicitConstructorCallInNonCanonicalConstructor,
 		NoArgument,
@@ -12028,7 +12038,7 @@ public void duplicatePermittedType(TypeReference reference, ReferenceBinding sup
 		reference.sourceEnd);
 }
 
-public void sealedClassNotDirectSuperClassOf(ReferenceBinding type, TypeReference reference, SourceTypeBinding superType) {
+public void sealedClassNotDirectSuperClassOf(TypeBinding type, TypeReference reference, SourceTypeBinding superType) {
 	if ((type.tagBits & TagBits.HierarchyHasProblems) == 0 && (superType.tagBits & TagBits.HierarchyHasProblems) == 0) {
 		this.handle(IProblem.SealedNotDirectSuperClass,
 				new String[] { new String(type.sourceName()), new String(superType.readableName()) },
@@ -12068,7 +12078,7 @@ public void missingPermitsClause(SourceTypeBinding type, ASTNode node) {
 			node.sourceEnd);
 }
 
-public void sealedInterfaceNotDirectSuperInterfaceOf(ReferenceBinding type, TypeReference reference, SourceTypeBinding superType) {
+public void sealedInterfaceNotDirectSuperInterfaceOf(TypeBinding type, TypeReference reference, SourceTypeBinding superType) {
 	if ((type.tagBits & TagBits.HierarchyHasProblems) == 0 && (superType.tagBits & TagBits.HierarchyHasProblems) == 0) {
 		this.handle(IProblem.SealedNotDirectSuperInterface,
 				new String[] { new String(type.sourceName()), new String(superType.readableName()) },

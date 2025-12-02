@@ -69,6 +69,7 @@ import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
+import org.eclipse.jdt.internal.compiler.impl.JavaFeature;
 import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.JavadocTagConstants;
@@ -2109,7 +2110,8 @@ public final class CompletionEngine
 								long positions = importReference.sourcePositions[importReference.tokens.length - 1];
 								setSourceAndTokenRange((int) (positions >>> 32), (int) positions);
 
-								if ((importReference.modifiers & ClassFileConstants.AccModule) != 0 && this.compilerOptions.enablePreviewFeatures) {
+								boolean isModuleImportsSupported = JavaFeature.MODULE_IMPORTS.isSupported(this.compilerOptions);
+								if ((importReference.modifiers & ClassFileConstants.AccModule) != 0 && isModuleImportsSupported) {
 									this.currentModule = this.unitScope.module(); // enable module-graph analysis for readability
 									this.completionToken = CharOperation.concatWithAll(importReference.tokens, '.');
 									this.tokenStart = importReference.sourceStart;
@@ -2119,10 +2121,8 @@ public final class CompletionEngine
 								}
 								char[][] oldTokens = importReference.tokens;
 								int tokenCount = oldTokens.length;
-								if (tokenCount <= 1 && this.compilerOptions.enablePreviewFeatures) {
-									char[][] choices = this.compilerOptions.enablePreviewFeatures
-											? new char[][] { Keywords.STATIC, Keywords.MODULE }
-											: new char[][] { Keywords.STATIC };
+								if (tokenCount <= 1 && isModuleImportsSupported) {
+									char[][] choices = new char[][] { Keywords.STATIC, Keywords.MODULE };
 									char[] token = tokenCount == 1 ? oldTokens[0] : CharOperation.NO_CHAR;
 									findKeywords(token, choices, false, false);
 								}
@@ -3887,7 +3887,7 @@ public final class CompletionEngine
 			checkCancel();
 
 			// see if we can find argument type at position in case if we are at a vararg.
-			checkForVarargExpectedTypes(astNodeParent, scope);
+			checkForVarargExpectedTypes(astNodeParent, astNode, scope);
 			findVariablesAndMethods(this.completionToken, scope, singleNameReference, scope, insideTypeAnnotation,
 					singleNameReference.isInsideAnnotationAttribute, true, new ObjectVector());
 
@@ -3923,8 +3923,11 @@ public final class CompletionEngine
 		}
 	}
 
-	private void checkForVarargExpectedTypes(ASTNode astNodeParent, Scope scope) {
-		if (astNodeParent instanceof MessageSend m && this.expectedTypesPtr == -1) {
+	private void checkForVarargExpectedTypes(ASTNode astNodeParent, ASTNode astNode, Scope scope) {
+		if (astNodeParent instanceof MessageSend m
+				&& m.arguments() != null
+				&& Stream.of(m.arguments()).anyMatch(astNode::equals)
+				&& this.expectedTypesPtr == -1) {
 			final ObjectVector methodsToSearchOn = new ObjectVector();
 			final CompletionRequestor actual = this.requestor;
 			this.requestor = new CompletionRequestor(true) {
@@ -5994,7 +5997,7 @@ public final class CompletionEngine
 					if (constructor.isSynthetic()) continue next;
 
 					if (this.options.checkDeprecation &&
-							constructor.isViewedAsDeprecated() &&
+							constructor.isDeprecated() &&
 							!scope.isDefinedInSameUnit(constructor.declaringClass))
 						continue next;
 
@@ -6340,6 +6343,16 @@ public final class CompletionEngine
 		}
 	}
 
+	private boolean argumentMismatch(AbstractVariableDeclaration[] arguments, char[][] parameterTypes) {
+		int argumentsLength = arguments == null ? 0 : arguments.length;
+		if (parameterTypes.length != argumentsLength)
+			return true;
+		for (int j = 0; j < argumentsLength; j++)
+			if (!CharOperation.equals(getTypeName(arguments[j].type), parameterTypes[j]))
+				return true;
+		return false;
+	}
+
 	private char[] getResolvedSignature(char[][] parameterTypes, char[] fullyQualifiedTypeName, int parameterCount, Scope scope) {
 		char[][] cn = CharOperation.splitOn('.', fullyQualifiedTypeName);
 
@@ -6377,25 +6390,23 @@ public final class CompletionEngine
 					TypeDeclaration typeDeclaration = refBinding.scope.referenceContext;
 					AbstractMethodDeclaration[] methods = typeDeclaration.methods;
 
+					if (methods == null)
+						return null;
+
 					next : for (AbstractMethodDeclaration method : methods) {
-						if (!method.isConstructor()) continue next;
-
-						AbstractVariableDeclaration[] arguments = method.arguments(true);
-						int argumentsLength = arguments == null ? 0 : arguments.length;
-
-						if (parameterCount != argumentsLength) continue next;
-
-						for (int j = 0; j < argumentsLength; j++) {
-							char[] argumentTypeName = getTypeName(arguments[j].type);
-
-							if (!CharOperation.equals(argumentTypeName, parameterTypes[j])) {
-								continue next;
-							}
-						}
-
+						if (!method.isConstructor() || argumentMismatch(method.arguments(true), parameterTypes))
+							continue next;
 						refBinding.resolveTypesFor(method.binding); // force resolution
 						if (method.binding == null) continue next;
 						return getSignature(method.binding);
+					}
+					if (typeDeclaration.isRecord() && !argumentMismatch(typeDeclaration.recordComponents, parameterTypes)) {
+						MethodBinding [] constructors = refBinding.getMethods(TypeConstants.INIT, parameterTypes.length);
+						if (constructors != null) {
+							for (MethodBinding constructor : constructors)
+								if (constructor instanceof SyntheticMethodBinding)
+									return getSignature(constructor);
+						}
 					}
 				}
 			}
@@ -6722,7 +6733,7 @@ public final class CompletionEngine
 			return;
 
 		if (this.options.checkDeprecation &&
-				exceptionType.isViewedAsDeprecated() &&
+				exceptionType.isDeprecated() &&
 				!scope.isDefinedInSameUnit(exceptionType))
 			return;
 
@@ -6912,7 +6923,7 @@ public final class CompletionEngine
 					if (constructor.isSynthetic()) continue next;
 
 					if (this.options.checkDeprecation &&
-							constructor.isViewedAsDeprecated() &&
+							constructor.isDeprecated() &&
 							!scope.isDefinedInSameUnit(constructor.declaringClass))
 						continue next;
 
@@ -7063,7 +7074,7 @@ public final class CompletionEngine
 			if (isFailedMatch(fieldName, field.name))	continue next;
 
 			if (this.options.checkDeprecation &&
-					field.isViewedAsDeprecated() &&
+					field.isDeprecated() &&
 					!scope.isDefinedInSameUnit(field.declaringClass))
 				continue next;
 
@@ -8341,7 +8352,7 @@ public final class CompletionEngine
 			if (isFailedMatch(fieldName, field.name))	continue next;
 
 			if (this.options.checkDeprecation &&
-					field.isViewedAsDeprecated() &&
+					field.isDeprecated() &&
 					!scope.isDefinedInSameUnit(field.declaringClass))
 				continue next;
 
@@ -8585,7 +8596,7 @@ public final class CompletionEngine
 			if (isFailedMatch(typeName, memberType.sourceName))
 				continue next;
 
-			if (this.options.checkDeprecation && memberType.isViewedAsDeprecated()) continue next;
+			if (this.options.checkDeprecation && memberType.isDeprecated()) continue next;
 
 			if (this.options.checkVisibility
 				&& !memberType.canBeSeenBy(this.unitScope.fPackage))
@@ -8641,7 +8652,7 @@ public final class CompletionEngine
 			if (isFailedMatch(fieldName, field.name))
 				continue next;
 
-			if (this.options.checkDeprecation && field.isViewedAsDeprecated()) continue next;
+			if (this.options.checkDeprecation && field.isDeprecated()) continue next;
 
 			if (this.options.checkVisibility
 				&& !field.canBeSeenBy(this.unitScope.fPackage))
@@ -8694,7 +8705,7 @@ public final class CompletionEngine
 
 			if (!method.isStatic()) continue next;
 
-			if (this.options.checkDeprecation && method.isViewedAsDeprecated()) continue next;
+			if (this.options.checkDeprecation && method.isDeprecated()) continue next;
 
 			if (this.options.checkVisibility
 				&& !method.canBeSeenBy(this.unitScope.fPackage)) continue next;
@@ -9214,7 +9225,7 @@ public final class CompletionEngine
             }
 
 			if (this.options.checkDeprecation &&
-					method.isViewedAsDeprecated() &&
+					method.isDeprecated() &&
 					!scope.isDefinedInSameUnit(method.declaringClass))
 				continue next;
 
@@ -9374,7 +9385,7 @@ public final class CompletionEngine
 			if (method.isConstructor()) continue next;
 
 			if (this.options.checkDeprecation &&
-					method.isViewedAsDeprecated() &&
+					method.isDeprecated() &&
 					!scope.isDefinedInSameUnit(method.declaringClass))
 				continue next;
 
@@ -9587,6 +9598,30 @@ public final class CompletionEngine
 				// Standard proposal
 				if(!this.isIgnored(CompletionProposal.METHOD_REF, missingElements != null) && (this.assistNodeInJavadoc & CompletionOnJavadoc.ONLY_INLINE_TAG) == 0) {
 					InternalCompletionProposal proposal =  createProposal(completionOnReferenceExpressionName ? CompletionProposal.METHOD_NAME_REFERENCE : CompletionProposal.METHOD_REF, this.actualCompletionPosition);
+
+					if (method.declaringClass.isRecord() && method instanceof SyntheticMethodBinding smb) {
+						MethodBinding[] overridden = null;
+						switch(smb.purpose) {
+							case SyntheticMethodBinding.RecordOverrideToString:
+								overridden = scope.getJavaLangObject().getMethods(TypeConstants.TOSTRING);
+								break;
+							case SyntheticMethodBinding.RecordOverrideHashCode:
+								overridden = scope.getJavaLangObject().getMethods(TypeConstants.HASHCODE);
+								break;
+							case SyntheticMethodBinding.RecordOverrideEquals:
+								overridden = scope.getJavaLangObject().getMethods(TypeConstants.EQUALS);
+								break;
+							case SyntheticMethodBinding.RecordComponentReadAccess:
+								proposal.flagRecordComponentAccessor();
+								break;
+							default:
+								break;
+						}
+						if (overridden != null && overridden.length > 0) {
+							method = overridden[0];
+						}
+					}
+
 					proposal.setBinding(method);
 					proposal.setDeclarationSignature(getSignature(method.declaringClass));
 					proposal.setSignature(getSignature(method));
@@ -9810,7 +9845,7 @@ public final class CompletionEngine
 				if (method.isConstructor()) continue next;
 
 				if (this.options.checkDeprecation &&
-						method.isViewedAsDeprecated() &&
+						method.isDeprecated() &&
 						!scope.isDefinedInSameUnit(method.declaringClass))
 					continue next;
 
@@ -10101,7 +10136,7 @@ public final class CompletionEngine
 			if (!method.isStatic()) continue next;
 
 			if (this.options.checkDeprecation &&
-					method.isViewedAsDeprecated() &&
+					method.isDeprecated() &&
 					!scope.isDefinedInSameUnit(method.declaringClass))
 				continue next;
 
@@ -10607,7 +10642,7 @@ public final class CompletionEngine
 				continue next;
 
 			if (this.options.checkDeprecation &&
-					memberType.isViewedAsDeprecated() &&
+					memberType.isDeprecated() &&
 					!scope.isDefinedInSameUnit(memberType))
 				continue next;
 
@@ -11382,7 +11417,7 @@ public final class CompletionEngine
 		ReferenceBinding refBinding = (ReferenceBinding) ref.resolvedType;
 		if(refBinding != null) {
 			if (this.options.checkDeprecation &&
-					refBinding.isViewedAsDeprecated() &&
+					refBinding.isDeprecated() &&
 					!scope.isDefinedInSameUnit(refBinding))
 				return;
 
@@ -12037,7 +12072,7 @@ public final class CompletionEngine
 						&& !(this.options.camelCaseMatch && CharOperation.camelCaseMatch(token, sourceType.sourceName)))	continue;
 
 				if (this.options.checkDeprecation &&
-						sourceType.isViewedAsDeprecated() &&
+						sourceType.isDeprecated() &&
 						!scope.isDefinedInSameUnit(sourceType))
 					continue;
 
@@ -12195,7 +12230,7 @@ public final class CompletionEngine
 						continue next;
 					}
 					if (this.options.checkDeprecation &&
-							refBinding.isViewedAsDeprecated() &&
+							refBinding.isDeprecated() &&
 							!scope.isDefinedInSameUnit(refBinding))
 						continue next;
 

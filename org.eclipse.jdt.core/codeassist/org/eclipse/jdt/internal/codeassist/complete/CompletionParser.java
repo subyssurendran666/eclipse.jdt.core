@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2020 IBM Corporation and others.
+ * Copyright (c) 2000, 2025 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -329,8 +329,8 @@ protected void attachOrphanCompletionNode(){
 							length);
 					}
 
-					// retrieve available modifiers if any and if its not a record
-					if (!isAtRecordType && this.intPtr >= 2 && this.intStack[this.intPtr - 1] == this.lastModifiersStart
+					// retrieve available modifiers if any
+					if (this.intPtr >= 2 && this.intStack[this.intPtr - 1] == this.lastModifiersStart
 							&& this.intStack[this.intPtr - 2] == this.lastModifiers) {
 						fieldDeclaration.modifiersSourceStart = this.intStack[this.intPtr-1];
 						fieldDeclaration.modifiers = this.intStack[this.intPtr-2];
@@ -346,7 +346,7 @@ protected void attachOrphanCompletionNode(){
 			RecoveredMethod recoveredMethod = (RecoveredMethod)this.currentElement;
 			/* only consider if inside method header */
 			if (!recoveredMethod.foundOpeningBrace) {
-				//if (rParenPos < lParenPos){ // inside arguments
+				//if (rParenPos < lParenPos){ // inside argument
 				if (orphan instanceof TypeReference){
 					this.currentElement = this.currentElement.parent.add(
 						new CompletionOnFieldType((TypeReference)orphan, true), 0);
@@ -2620,6 +2620,9 @@ protected void consumeClassHeaderName1() {
 
 @Override
 protected void consumeRecordHeaderPart() {
+	popElement(K_SELECTOR_QUALIFIER);
+	popElement(K_SELECTOR_INVOCATION_TYPE);
+	popElement(K_SELECTOR);
 	super.consumeRecordHeaderPart();
 	this.hasUnusedModifiers = false;
 	if (this.pendingAnnotation != null) {
@@ -3044,15 +3047,14 @@ protected void consumeExitVariableWithInitialization() {
 		}
 	}
 
-	// does not keep the initialization if completion is not inside
+	// do not keep the initialization if completion is not inside, except for var typed local where initializer must be preserved for LVTI
 	AbstractVariableDeclaration variable = (AbstractVariableDeclaration) this.astStack[this.astPtr];
 	if (this.cursorLocation + 1 < variable.initialization.sourceStart ||
 		this.cursorLocation > variable.initialization.sourceEnd) {
-		if (!variable.type.isTypeNameVar(null)) {
-			if (! (variable instanceof LocalDeclaration && variable.isTypeNameVar(this.compilationUnit.scope))) {
-				variable.initialization = null;
-			}
-		}
+
+		if (! (variable instanceof LocalDeclaration && variable.isVarTyped(this.compilationUnit.scope)))
+			variable.initialization = null;
+
 	} else if (this.assistNode != null && this.assistNode == variable.initialization) {
 			this.assistNodeParent = variable;
 	}

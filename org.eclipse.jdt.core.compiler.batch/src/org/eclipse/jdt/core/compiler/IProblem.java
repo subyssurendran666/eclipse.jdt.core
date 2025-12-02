@@ -2000,6 +2000,8 @@ void setSourceStart(int sourceStart);
 	int ConstNonNullFieldComparisonYieldsFalse = Internal + 945;
 	/** @since 3.21 */
 	int InheritedParameterLackingNonNullAnnotation = MethodRelated + 946;
+	/** @since 3.43 */
+	int RecordComponentIncompatibleNullnessVsInheritedAccessor = MethodRelated + 947;
 
 	/** @since 3.10 */
 	int ArrayReferencePotentialNullReference = Internal + 951;
@@ -2184,11 +2186,8 @@ void setSourceStart(int sourceStart);
 	int ExportingForeignPackage = ModuleRelated + 1320;
 	/** @since 3.42*/
 	int ModifierOnRequiresJavaBase = ModuleRelated + 1321;
-	/**
-	 * @since 3.42
-	 * @noreference related to preview feature module imports
-	 */
-	int ModifierOnRequiresJavaBasePreview = ModuleRelated + 1322;
+	/** @since 3.44 */
+	int ModifierTransitiveOnRequiresJavaBaseBelow25 = ModuleRelated + 1322;
 
 
 	/** @since 3.14 */
@@ -2267,6 +2266,9 @@ void setSourceStart(int sourceStart);
 	int UsingTerminallyDeprecatedModule = ModuleRelated + 1431;
 	/** @since 3.14 */
 	int UsingTerminallyDeprecatedSinceVersionModule = ModuleRelated + 1432;
+
+	/** @since 3.44 */
+	int MemberOfDeprecatedTypeNotDeprecated = TypeRelated + 1433;
 
 	/** @since 3.14 */
 	int NotAccessibleType = TypeRelated + 1450;
@@ -2356,9 +2358,13 @@ void setSourceStart(int sourceStart);
 	int VarLocalInitializedToVoid = TypeRelated + 1505; // Variable initializer is ''void'' -- cannot infer variable type
 	/** @since 3.14 */
 	int VarLocalCannotBeArrayInitalizers = TypeRelated + 1506; // Array initializer needs an explicit target-type
-	/** @since 3.14 */
+	/** @since 3.14
+	 *  @deprecated no longer issued - will be removed
+	 * */
 	int VarLocalCannotBeLambda = TypeRelated + 1507; // Lambda expression needs an explicit target-type
-	/** @since 3.14 */
+	/** @since 3.14
+	 *  @deprecated no longer issued - will be removed
+	 * */
 	int VarLocalCannotBeMethodReference = TypeRelated + 1508; // Method reference needs an explicit target-type
 	/** @since 3.14 */
 	int VarIsReserved = Syntax + 1509; // ''var'' is not a valid type name
@@ -2489,6 +2495,8 @@ void setSourceStart(int sourceStart);
 	int SwitchExpressionsContinueOutOfSwitchExpression  = Syntax + 1723;
 	/** @since 3.22 */
 	int SwitchExpressionsReturnWithinSwitchExpression  = Syntax + 1724;
+	/** @since 3.44 */
+	int SwitchExpressionMissingEnumConstantCaseDespiteDefault = FieldRelated + 1725;
 
 	/* records - begin */
 

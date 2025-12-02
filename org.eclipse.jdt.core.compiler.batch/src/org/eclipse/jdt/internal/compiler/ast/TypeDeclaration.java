@@ -38,9 +38,11 @@ import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration.AnalysisMode;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
+import org.eclipse.jdt.internal.compiler.flow.DualFlowInfo;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.flow.InitializationFlowContext;
+import org.eclipse.jdt.internal.compiler.flow.UnconditionalDualFlowInfo;
 import org.eclipse.jdt.internal.compiler.flow.UnconditionalFlowInfo;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.JavaFeature;
@@ -609,12 +611,7 @@ public void generateCode(ClassFile enclosingClassFile) {
 			enclosingClassFile.recordInnerClasses(this.binding);
 			classFile.recordInnerClasses(this.binding);
 		}
-		SourceTypeBinding nestHost = this.binding.getNestHost();
-		if (nestHost != null && !TypeBinding.equalsEquals(nestHost, this.binding)) {
-			ClassFile ocf = enclosingClassFile.outerMostEnclosingClassFile();
-			if (ocf != null)
-				ocf.recordNestMember(this.binding);
-		}
+
 		TypeVariableBinding[] typeVariables = this.binding.typeVariables();
 		for (TypeVariableBinding typeVariableBinding : typeVariables) {
 			if ((typeVariableBinding.tagBits & TagBits.ContainsNestedTypeReferences) != 0) {
@@ -754,6 +751,7 @@ private void internalAnalyseCode(FlowContext flowContext, FlowInfo flowInfo) {
 		if (this.methods != null) {
 			// collect field initializations happening in constructor prologues
 			FlowInfo prologueInfo = null;
+			boolean allConstructorsHavePrologue = true;
 			for (int i=0; i<this.methods.length; i++) {
 				AbstractMethodDeclaration method = this.methods[i];
 				if (method.isConstructor()) {
@@ -761,23 +759,32 @@ private void internalAnalyseCode(FlowContext flowContext, FlowInfo flowInfo) {
 					ConstructorDeclaration constructor = (ConstructorDeclaration) method;
 					constructor.analyseCode(this.scope, initializerContext, ctorInfo, ctorInfo.reachMode(), AnalysisMode.PROLOGUE);
 					ctorInfo = constructor.getPrologueInfo();
-					if (prologueInfo == null)
-						prologueInfo = ctorInfo.copy();
-					else
-						prologueInfo = prologueInfo.mergeDefiniteInitsWith(ctorInfo.unconditionalInits()); // will only evaluate field inits below
+					if (ctorInfo == ConstructorDeclaration.EMPTY_FLOW_INFO) {
+						allConstructorsHavePrologue = false;
+					} else if (ctorInfo.hasInits()) {
+						if (prologueInfo == null)
+							prologueInfo = ctorInfo.copy();
+						else
+							prologueInfo = prologueInfo.mergeDefiniteInitsWith(ctorInfo.unconditionalInits()); // will only evaluate field inits below
+					}
 				}
 			}
 			if (prologueInfo != null) {
-				// field initializers should see inits from ctor prologues:
-				for (FieldBinding field : this.binding.fields()) {
-					if (prologueInfo.isDefinitelyAssigned(field)) {
-						nonStaticFieldInfo.markAsDefinitelyAssigned(field);
-					} else if (prologueInfo.isPotentiallyAssigned(field)) {
-						// mimic missing method markAsPotentiallyAssigned(field):
-						UnconditionalFlowInfo assigned = FlowInfo.initial(this.maxFieldCount);
-						assigned.markAsDefinitelyAssigned(field);
-						nonStaticFieldInfo.addPotentialInitializationsFrom(assigned);
+				if (allConstructorsHavePrologue) {
+					// field initializers should see inits from ctor prologues:
+					for (FieldBinding field : this.binding.fields()) {
+						if (prologueInfo.isDefinitelyAssigned(field)) {
+							nonStaticFieldInfo.markAsDefinitelyAssigned(field);
+						} else if (prologueInfo.isPotentiallyAssigned(field)) {
+							// mimic missing method markAsPotentiallyAssigned(field):
+							UnconditionalFlowInfo assigned = FlowInfo.initial(this.maxFieldCount);
+							assigned.markAsDefinitelyAssigned(field);
+							nonStaticFieldInfo.addPotentialInitializationsFrom(assigned);
+						}
 					}
+				} else {
+					// need to keep variants with and without prologue info separate:
+					nonStaticFieldInfo = new DualFlowInfo(nonStaticFieldInfo, prologueInfo);
 				}
 			}
 		}
@@ -850,6 +857,11 @@ private void internalAnalyseCode(FlowContext flowContext, FlowInfo flowInfo) {
 	}
 	if (this.methods != null) {
 		UnconditionalFlowInfo outerInfo = flowInfo.unconditionalFieldLessCopy();
+		if (nonStaticFieldInfo instanceof UnconditionalDualFlowInfo udfi) {
+			nonStaticFieldInfo = udfi.getMainInits(); // drop info from prologues
+		} else if (nonStaticFieldInfo instanceof DualFlowInfo dfi) {
+			nonStaticFieldInfo = dfi.initsWhenTrue;
+		}
 		FlowInfo constructorInfo = nonStaticFieldInfo.unconditionalInits().discardNonFieldInitializations().addInitializationsFrom(outerInfo);
 		SimpleSetOfCharArray jUnitMethodSourceValues = getJUnitMethodSourceValues();
 		for (AbstractMethodDeclaration method : this.methods) {
@@ -1249,8 +1261,8 @@ public void resolve() {
 		this.scope.problemReporter().validateRestrictedKeywords(this.name, this);
 		// resolve annotations and check @Deprecated annotation
 		long annotationTagBits = sourceType.getAnnotationTagBits();
-		if ((annotationTagBits & TagBits.AnnotationDeprecated) == 0
-				&& (sourceType.modifiers & ClassFileConstants.AccDeprecated) != 0) {
+		boolean isDeprecated = (annotationTagBits & TagBits.AnnotationDeprecated) != 0;
+		if (!isDeprecated && (sourceType.modifiers & ClassFileConstants.AccDeprecated) != 0) {
 			this.scope.problemReporter().missingDeprecatedAnnotationForType(this);
 		}
 		if ((annotationTagBits & TagBits.AnnotationFunctionalInterface) != 0) {
@@ -1267,6 +1279,7 @@ public void resolve() {
 		boolean needSerialVersion =
 						this.scope.compilerOptions().getSeverity(CompilerOptions.MissingSerialVersion) != ProblemSeverities.Ignore
 						&& sourceType.isClass()
+						&& !sourceType.isAnonymousType()
 						&& !sourceType.isRecord()
 						&& sourceType.findSuperTypeOriginatingFrom(TypeIds.T_JavaIoExternalizable, false /*Externalizable is not a class*/) == null
 						&& sourceType.findSuperTypeOriginatingFrom(TypeIds.T_JavaIoSerializable, false /*Serializable is not a class*/) != null;
@@ -1382,6 +1395,8 @@ public void resolve() {
 					field.javadoc = this.javadoc;
 				}
 				field.resolve(field.isStatic() ? this.staticInitializerScope : this.initializerScope);
+				if (isDeprecated)
+					checkMemberOfDeprecated(sourceType, field.binding, field);
 			}
 		}
 		if (this.maxFieldCount < localMaxFieldCount) {
@@ -1444,7 +1459,13 @@ public void resolve() {
 		if (this.methods != null) {
 			for (AbstractMethodDeclaration method : this.methods) {
 				method.resolve(this.scope);
+				if (isDeprecated)
+					checkMemberOfDeprecated(sourceType, method.binding, method);
 			}
+		}
+		if (this.memberTypes != null && isDeprecated) {
+			for (TypeDeclaration member : this.memberTypes)
+				checkMemberOfDeprecated(sourceType, member.binding, member);
 		}
 		// Resolve javadoc
 		if (this.javadoc != null) {
@@ -1469,7 +1490,7 @@ public void resolve() {
 				reporter.close();
 			}
 		}
-		updateNestHost();
+		updateNestRelations();
 		FieldDeclaration[] fieldsDecls = this.fields;
 		if (fieldsDecls != null) {
 			for (FieldDeclaration fieldDeclaration : fieldsDecls)
@@ -1483,6 +1504,22 @@ public void resolve() {
 	} catch (AbortType e) {
 		this.ignoreFurtherInvestigation = true;
 		return;
+	}
+}
+
+private void checkMemberOfDeprecated(SourceTypeBinding declaringType, Binding memberBinding, ASTNode memberDeclaration) {
+	if (declaringType.isAnnotationType())
+		return; // don't suggest to deprecate annotation attributes
+
+	if (memberBinding instanceof MethodBinding method && method.isPrivate()) return;
+	else if (memberBinding instanceof FieldBinding field && field.isPrivate()) return;
+	else if (memberBinding instanceof ReferenceBinding type && type.isPrivate()) return;
+
+	if (memberBinding != null && memberBinding.isValidBinding() && (memberBinding.tagBits & TagBits.HasMissingType) == 0) {
+		if (memberDeclaration instanceof ConstructorDeclaration ctor && ctor.isDefaultConstructor())
+			return;
+		if ((memberBinding.tagBits & TagBits.AnnotationDeprecated) == 0)
+			this.scope.problemReporter().memberOfDeprecatedTypeNotDeprecated(memberDeclaration, declaringType);
 	}
 }
 
@@ -1795,19 +1832,37 @@ void updateMaxFieldCount() {
 	}
 }
 
-private SourceTypeBinding findNestHost() {
-	ClassScope classScope = this.scope.enclosingTopMostClassScope();
-	return classScope != null ? classScope.referenceContext.binding : null;
-}
+private final void updateNestRelations() {
 
-void updateNestHost() {
-	if (this.binding == null)
-		return;
-	SourceTypeBinding nestHost = findNestHost();
-	if (nestHost != null && !this.binding.equals(nestHost)) {// member
+	ClassScope outerMostClassScope = this.scope;
+	Scope skope = this.scope;
+	boolean concreteType = true;
+	while (skope != null && skope.kind != Scope.COMPILATION_UNIT_SCOPE) {
+		switch (skope.kind) {
+			case Scope.METHOD_SCOPE :
+				ReferenceContext context = ((MethodScope) skope).referenceContext;
+				if (context instanceof LambdaExpression lambdaExpression) {
+					if (lambdaExpression != lambdaExpression.original) // transient unreal universe.
+						concreteType = false;
+				}
+				break;
+			case Scope.CLASS_SCOPE:
+				outerMostClassScope = (ClassScope) skope;
+				break;
+		}
+		skope = skope.parent;
+	}
+
+	SourceTypeBinding nestHost =  outerMostClassScope != null ? outerMostClassScope.referenceContext.binding : null;
+	if (nestHost != null && !this.binding.equals(nestHost)) {
+		// https://bugs.eclipse.org/bugs/show_bug.cgi?id=572190 && https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4204:
+		// The nest host is valid even for a transient type, but a transient type from a lambda copy is not a member of the nest host (its non-transient original is/will be)
 		this.binding.setNestHost(nestHost);
+		if (concreteType)
+			nestHost.addNestMember(this.binding);
 	}
 }
+
 public boolean isPackageInfo() {
 	return CharOperation.equals(this.name,  TypeConstants.PACKAGE_INFO_NAME);
 }
@@ -1821,9 +1876,6 @@ public void updateSupertypesWithAnnotations(Map<ReferenceBinding,ReferenceBindin
 	if (this.binding == null)
 		return;
 	this.binding.getAnnotationTagBits();
-	if (this.binding instanceof MemberTypeBinding) {
-		((MemberTypeBinding) this.binding).updateDeprecationFromEnclosing();
-	}
 	Map<ReferenceBinding,ReferenceBinding> updates = new HashMap<>();
 	if (this.typeParameters != null) {
 		for (TypeParameter typeParameter : this.typeParameters) {

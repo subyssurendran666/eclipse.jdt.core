@@ -36,4 +36,9 @@ public interface ExtendedTagBits {
 	int DeprecatedAnnotationResolved = ASTNode.Bit7;
 	int NullDefaultAnnotationResolved = ASTNode.Bit8; // package, type, method or variable
 	int AllAnnotationsResolved = ExtendedTagBits.AnnotationResolved | ExtendedTagBits.DeprecatedAnnotationResolved | ExtendedTagBits.NullDefaultAnnotationResolved;
+	static boolean areAllAnnotationsResolved(long extendedTagBits) {
+		return (extendedTagBits & AllAnnotationsResolved) == AllAnnotationsResolved;
+	}
+
+	int IsNullAnnotationPackage = ASTNode.Bit1; // package
 }

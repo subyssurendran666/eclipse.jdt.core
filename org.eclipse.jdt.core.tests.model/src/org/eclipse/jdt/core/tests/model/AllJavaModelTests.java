@@ -116,7 +116,7 @@ private static Class[] getAllTestClasses() {
 		ResolveTests10.class,
 		ResolveTests12To15.class,
 		ResolveTests21.class,
-		ResolveTests23.class,
+		ResolveTests25.class,
 		SelectionJavadocModelTests.class,
 
 		// Some test suite above breaks completion tests below
@@ -151,6 +151,7 @@ private static Class[] getAllTestClasses() {
 		ReconcilerTests16.class,
 		ReconcilerTests21.class,
 		ReconcilerStatementsRecoveryTests.class,
+		ReconcilerMultiReleaseTests.class,
 
 		// Copy and move operation tests
 		CopyMoveElementsTests.class,

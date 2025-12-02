@@ -92,22 +92,30 @@ public class SearchableEnvironment
 
 	private List<IPackageFragmentRoot> unnamedModulePackageFragmentRoots;
 
+	private int release;
+
 	@Deprecated
 	public SearchableEnvironment(JavaProject project, org.eclipse.jdt.core.ICompilationUnit[] workingCopies) throws JavaModelException {
-		this(project, workingCopies, false);
+		this(project, workingCopies, false, JavaProject.NO_RELEASE);
 	}
 	/**
 	 * Creates a SearchableEnvironment on the given project
+	 * <p>
+	 * When {@code release} is not {@link JavaProject#NO_RELEASE} then this SearchableEnvironment
+	 * will define a view that prefers to search in locations that best match the given release.
+	 * See {@link NameLookup#findType(String, String, boolean, int, boolean, boolean, boolean, IProgressMonitor, IPackageFragmentRoot[], int)}.
+	 * </p>
 	 */
-	public SearchableEnvironment(JavaProject project, org.eclipse.jdt.core.ICompilationUnit[] workingCopies, boolean excludeTestCode) throws JavaModelException {
+	public SearchableEnvironment(JavaProject project, org.eclipse.jdt.core.ICompilationUnit[] workingCopies, boolean excludeTestCode, int release) throws JavaModelException {
 		this.project = project;
 		this.excludeTestCode = excludeTestCode;
+		this.release = release;
 		this.checkAccessRestrictions =
 			!JavaCore.IGNORE.equals(project.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
 			|| !JavaCore.IGNORE.equals(project.getOption(JavaCore.COMPILER_PB_DISCOURAGED_REFERENCE, true));
 		this.workingCopies = workingCopies;
 		this.nameLookup = project.newNameLookup(workingCopies, excludeTestCode);
-		boolean java9plus = JavaCore.callReadOnly(() -> CompilerOptions
+		boolean java9plus = release >=JavaProject.FIRST_MULTI_RELEASE || JavaCore.callReadOnly(() -> CompilerOptions
 				.versionToJdkLevel(project.getOption(JavaCore.COMPILER_COMPLIANCE, true)) >= ClassFileConstants.JDK9);
 		if (java9plus) {
 			this.knownModuleLocations = new HashMap<>();
@@ -140,14 +148,14 @@ public class SearchableEnvironment
 	 */
 	@Deprecated
 	public SearchableEnvironment(JavaProject project, WorkingCopyOwner owner) throws JavaModelException {
-		this(project, owner, false);
+		this(project, owner, false, JavaProject.NO_RELEASE);
 	}
 
 	/**
 	 * Creates a SearchableEnvironment on the given project
 	 */
-	public SearchableEnvironment(JavaProject project, WorkingCopyOwner owner, boolean excludeTestCode) throws JavaModelException {
-		this(project, owner == null ? null : JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary WCs*/), excludeTestCode);
+	public SearchableEnvironment(JavaProject project, WorkingCopyOwner owner, boolean excludeTestCode, int release) throws JavaModelException {
+		this(project, owner == null ? null : JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary WCs*/), excludeTestCode, release);
 		this.owner = owner;
 	}
 
@@ -195,7 +203,8 @@ public class SearchableEnvironment
 				false/*exact match*/,
 				NameLookup.ACCEPT_ALL,
 				this.checkAccessRestrictions,
-				moduleContext);
+				moduleContext,
+				this.release);
 		if (answer != null) {
 			// construct name env answer
 			if (answer.type instanceof BinaryType) { // BinaryType
