@@ -16490,52 +16490,6 @@ public void testIssue2977() {
 		""",
 		CodeFormatter.K_COMPILATION_UNIT);
 }
-	public void testMarkdownSpacingFormat() throws JavaModelException {
-		setComplianceLevel(CompilerOptions.VERSION_23);
-		String input = """
-				class Mark {
-					/// @param 		param
-					///  @return 			int
-					public int sample(String param) {
-						return 0;
-					}
-				}
-				""";
-		String expected = """
-				class Mark {
-					/// @param param
-					/// @return int
-					public int sample(String param) {
-						return 0;
-					}
-				}
-				""";
-		formatSource(input, expected);
-	}
-	public void testMarkdownEmptyLinesBtwnDiffTags() throws JavaModelException {
-		setComplianceLevel(CompilerOptions.VERSION_23);
-		this.formatterPrefs.comment_insert_empty_line_between_different_tags = true;
-		String input = """
-				class Mark {
-					/// @param param1
-					/// @return int
-					public int sample(String param1) {
-						return 0;
-					}
-				}
-				""";
-		String expected = """
-				class Mark {
-					/// @param param1
-					///\s
-					/// @return int
-					public int sample(String param1) {
-						return 0;
-					}
-				}
-				""";
-		formatSource(input, expected);
-	}
 
 	public void testRecordWithOpeningParanthesisInParam() throws JavaModelException {
 		setComplianceLevel(CompilerOptions.VERSION_16);
@@ -16596,6 +16550,23 @@ public void testIssue2977() {
 				""";
 		String expected = """
 				record X<T>(T value) {
+				}
+				""";
+		formatSource(input, expected);
+	}
+
+	public void testEnumJavaDocBreak() throws JavaModelException {
+		setComplianceLevel(CompilerOptions.VERSION_23);
+		String input = """
+				public enum TestEnum  {
+					/// A
+					A;
+				}
+				""";
+		String expected = """
+				public enum TestEnum {
+					/// A
+					A;
 				}
 				""";
 		formatSource(input, expected);

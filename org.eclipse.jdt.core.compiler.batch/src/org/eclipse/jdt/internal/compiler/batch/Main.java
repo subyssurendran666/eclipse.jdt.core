@@ -3069,6 +3069,9 @@ private String optionStringToVersion(String currentArg) {
 		case "25": //$NON-NLS-1$
 		case "25.0": //$NON-NLS-1$
 			return CompilerOptions.VERSION_25;
+		case "26": //$NON-NLS-1$
+		case "26.0": //$NON-NLS-1$
+			return CompilerOptions.VERSION_26;
 		default:
 			return null;
 	}
@@ -3555,7 +3558,7 @@ protected ArrayList<FileSystem.Classpath> handleModuleSourcepath(String arg) {
 	}
 	return result;
 }
-private void handleSingleModuleCompilation() {
+protected void handleSingleModuleCompilation() {
 	if (this.filenames == null) {
 		return;
 	}

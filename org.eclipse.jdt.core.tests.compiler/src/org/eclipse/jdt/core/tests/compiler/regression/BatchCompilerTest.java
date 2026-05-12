@@ -523,7 +523,7 @@ public void test009(){
         "2. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 6)\n" +
         "	KO ko;\n" +
         "	^^\n" +
-        "Access restriction: The type \'KO\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+        "Access restriction: The type \'KO\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
         "----------\n" +
         "3. ERROR in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 7)\n" +
         "	Zork z;\n" +
@@ -1584,7 +1584,7 @@ public void test019(){
 			"2. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 6)\n" +
 			"	KO ko;\n" +
 			"	^^\n" +
-			"Access restriction: The type \'KO\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+			"Access restriction: The type \'KO\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
 			"----------\n" +
 			"3. ERROR in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 7)\n" +
 			"	Zork z;\n" +
@@ -1888,7 +1888,7 @@ public void test027(){
         "2. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 6)\n" +
         "	KO ko;\n" +
         "	^^\n" +
-        "Access restriction: The type \'KO\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+        "Access restriction: The type \'KO\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
         "----------\n" +
         "3. ERROR in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 7)\n" +
         "	Zork z;\n" +
@@ -2616,7 +2616,7 @@ public void test040(){
         "1. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/Y.java (at line 4)\n" +
         "	p.Z z;\n" +
         "	^^^\n" +
-        "Access restriction: The type \'Z\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+        "Access restriction: The type \'Z\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
         "----------\n" +
         "1 problem (1 warning)\n",
         false);
@@ -2665,7 +2665,7 @@ public void test041(){
         "1. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/Y.java (at line 4)\n" +
         "	p.Z z;\n" +
         "	^^^\n" +
-        "Access restriction: The type \'Z\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+        "Access restriction: The type \'Z\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
         "----------\n" +
         "1 problem (1 warning)\n",
         false);
@@ -3682,7 +3682,7 @@ public void test073_per_source_output_directory(){
 		"1. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/Z.java (at line 2)\n" +
 		"	X f;\n" +
 		"	^\n" +
-		"Access restriction: The type \'X\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---/src1\')\n" +
+		"Access restriction: The type \'X\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---/src1\')\n" +
 		"----------\n" +
 		"1 problem (1 warning)\n",
 		true);
@@ -3871,7 +3871,7 @@ public void test079_per_source_output_directory(){
 		"1. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/Z.java (at line 2)\n" +
 		"	X f;\n" +
 		"	^\n" +
-		"Access restriction: The type \'X\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---/src1\')\n" +
+		"Access restriction: The type \'X\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---/src1\')\n" +
 		"----------\n" +
 		"1 problem (1 warning)\n",
 		true);
@@ -4065,7 +4065,7 @@ public void test085_per_source_output_directory(){
 		"1. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/Z.java (at line 2)\n" +
 		"	X f;\n" +
 		"	^\n" +
-		"Access restriction: The type \'X\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---/src1\')\n" +
+		"Access restriction: The type \'X\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---/src1\')\n" +
 		"----------\n" +
 		"1 problem (1 warning)\n",
 		true);
@@ -5096,27 +5096,27 @@ public void test148_access_restrictions(){
   "1. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 3)\n" +
   "	KO ko;\n" +
   "	^^\n" +
-  "Access restriction: The type \'KO\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+  "Access restriction: The type \'KO\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
   "----------\n" +
   "2. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 5)\n" +
   "	ko = new KO();\n" +
   "	         ^^\n" +
-  "Access restriction: The type \'KO\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+  "Access restriction: The type \'KO\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
   "----------\n" +
   "3. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 5)\n" +
   "	ko = new KO();\n" +
   "	         ^^\n" +
-  "Access restriction: The constructor \'KO()\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+  "Access restriction: The constructor \'KO()\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
   "----------\n" +
   "4. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 6)\n" +
   "	ko.bar();\n" +
   "	   ^^^\n" +
-  "Access restriction: The method \'KO.bar()\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+  "Access restriction: The method \'KO.bar()\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
   "----------\n" +
   "5. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 7)\n" +
   "	if (ko.m) {}\n" +
   "	       ^\n" +
-  "Access restriction: The field \'KO.m\' is not API (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
+  "Access restriction: The field \'KO.m\' is not accessible (restriction on classpath entry \'---OUTPUT_DIR_PLACEHOLDER---\')\n" +
   "----------\n" +
   "6. ERROR in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 9)\n" +
   "	Zork z;\n" +
@@ -13356,6 +13356,131 @@ public void testBug550255() {
 		+ "The method foo2() from the type X can be declared as static\n"
 		+ "----------\n"
 		+ "1 problem (1 warning)\n",
+		true);
+}
+// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4750
+// Compilation error not raised with ECJ when warnings are raised
+public void testIssue4750() {
+	this.runNegativeTest(
+		new String[] {
+			"X.java",
+			"""
+			public class X {
+				public void testIssue() throws Exception {
+					int N_ITERATIONS = 10;
+					while (N_ITERATIONS-- > 0) {
+						Object index = 0;
+						Runnable thread = new Runnable() {
+							@Override
+							public void run() {
+								System.out.println(index + 1);
+							}
+						};
+					}
+				}
+			}
+			""",
+		},
+		"\"" + OUTPUT_DIR +  File.separator + "X.java\""
+		+ " -sourcepath \"" + OUTPUT_DIR + "\""
+		+ " -d \"" + OUTPUT_DIR + "\"",
+		"",
+		"----------\n" +
+		"1. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 5)\n" +
+		"	Object index = 0;\n" +
+		"	       ^^^^^\n" +
+		"The value of the local variable index is not used\n" +
+		"----------\n" +
+		"2. WARNING in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 6)\n" +
+		"	Runnable thread = new Runnable() {\n" +
+		"	         ^^^^^^\n" +
+		"The value of the local variable thread is not used\n" +
+		"----------\n" +
+		"3. ERROR in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 9)\n" +
+		"	System.out.println(index + 1);\n" +
+		"	                   ^^^^^^^^^\n" +
+		"The operator + is undefined for the argument type(s) Object, int\n" +
+		"----------\n" +
+		"3 problems (1 error, 2 warnings)\n",
+		true);
+}
+// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4750
+// Compilation error not raised with ECJ when warnings are raised
+public void testIssue4750_nowarn() {
+	this.runNegativeTest(
+		new String[] {
+			"X.java",
+			"""
+			public class X {
+				public void testIssue() throws Exception {
+					int N_ITERATIONS = 10;
+					while (N_ITERATIONS-- > 0) {
+						Object index = 0;
+						Runnable thread = new Runnable() {
+							@Override
+							public void run() {
+								System.out.println(index + 1);
+							}
+						};
+					}
+				}
+			}
+			""",
+		},
+		"\"" + OUTPUT_DIR +  File.separator + "X.java\""
+		+ " -sourcepath \"" + OUTPUT_DIR + "\""
+		+ " -nowarn -d \"" + OUTPUT_DIR + "\"",
+		"",
+		"----------\n" +
+		"1. ERROR in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 9)\n" +
+		"	System.out.println(index + 1);\n" +
+		"	                   ^^^^^^^^^\n" +
+		"The operator + is undefined for the argument type(s) Object, int\n" +
+		"----------\n" +
+		"1 problem (1 error)\n",
+		true);
+}
+// https://github.com/eclipse-jdt/eclipse.jdt.core/issues/4768
+// Internal Compiler Error when a static field with custom annotation references a generic type parameter T
+public void testIssue4768(){
+	this.runNegativeTest(
+		new String[] {
+			"X.java",
+			"""
+			import java.lang.annotation.*;
+			@interface CompileTimeConstant {}
+
+			class FunctionPointerContainer<T> {
+			    @CompileTimeConstant
+			    public static final T VALUE = null;
+			}
+
+			public class X {
+			    public static void main(String[] args) {
+			        FunctionPointerContainer<Integer> nestedContainer = new FunctionPointerContainer<>();
+			        Integer value = nestedContainer.VALUE;
+			    }
+			}
+			""",
+		},
+
+		"\"" + OUTPUT_DIR +  File.separator + "X.java\""
+		+ " -sourcepath \"" + OUTPUT_DIR + "\""
+		+ " -nowarn -d \"" + OUTPUT_DIR + "\"",
+		"",
+		"----------\n" +
+		"1. ERROR in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 6)\n" +
+		"	public static final T VALUE = null;\n" +
+		"	                    ^\n" +
+		"Cannot make a static reference to the non-static type T\n" +
+		"----------\n" +
+		"2. ERROR in ---OUTPUT_DIR_PLACEHOLDER---/X.java (at line 12)\n" +
+		"	Integer value = nestedContainer.VALUE;\n" +
+		"	                                ^^^^^\n" +
+		"VALUE cannot be resolved or is not a field\n" +
+		"----------\n" +
+		"2 problems (2 errors)\n",
+
 		true);
 }
 }

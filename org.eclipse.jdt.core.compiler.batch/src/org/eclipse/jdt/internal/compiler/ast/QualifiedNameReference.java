@@ -991,6 +991,8 @@ public TypeBinding reportError(BlockScope scope) {
 		scope.problemReporter().invalidField(this, (FieldBinding) this.binding);
 	} else if (this.binding instanceof ProblemReferenceBinding || this.binding instanceof MissingTypeBinding) {
 		scope.problemReporter().invalidType(this, (TypeBinding) this.binding);
+	} else if (this.binding instanceof ProblemLocalVariableBinding plvb && plvb.problemId() == ProblemReasons.NonStaticReferenceInStaticContext) {
+		scope.problemReporter().recordStaticReferenceToOuterLocalVariable(plvb.closestMatch, this);
 	} else {
 		scope.problemReporter().unresolvableReference(this, this.binding);
 	}
@@ -1042,7 +1044,7 @@ public TypeBinding resolveType(BlockScope scope) {
 								&& methodScope.lastVisibleFieldID >= 0
 								&& fieldBinding.id >= methodScope.lastVisibleFieldID
 								&& (!fieldBinding.isStatic() || methodScope.isStatic)) {
-							if (methodScope.insideTypeAnnotation && fieldBinding.id == methodScope.lastVisibleFieldID) {
+							if (methodScope.insideTypeDeclarationAnnotations && fieldBinding.id == methodScope.lastVisibleFieldID) {
 								// false alarm, location is NOT a field initializer but the value in a memberValuePair
 							} else {
 								scope.problemReporter().forwardReference(this, this.indexOfFirstFieldBinding-1, fieldBinding);
